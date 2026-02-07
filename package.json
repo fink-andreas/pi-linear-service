@@ -18,5 +18,8 @@
     "daemon"
   ],
   "license": "MIT",
-  "author": ""
+  "author": "",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
 }

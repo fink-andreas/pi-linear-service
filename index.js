@@ -7,24 +7,27 @@
 
 import { validateEnv } from './src/config.js';
 import { startPollLoop } from './src/poller.js';
+import { printBanner, logConfig, error as logError } from './src/logger.js';
 
 /**
  * Boot sequence:
- * 1. Validate environment variables
- * 2. Start poll loop
+ * 1. Print startup banner
+ * 2. Validate environment variables
+ * 3. Start poll loop
  */
 async function boot() {
-  console.log('pi-linear-service starting...');
+  // Step 1: Print banner
+  printBanner();
 
   try {
-    // Step 1: Validate environment
+    // Step 2: Validate environment
     const config = validateEnv();
-    console.log('Environment validated successfully');
+    logConfig(config);
 
-    // Step 2: Start poll loop
+    // Step 3: Start poll loop
     await startPollLoop(config);
   } catch (error) {
-    console.error(`Startup error: ${error.message}`);
+    logError('Startup error', { error: error.message });
     process.exit(1);
   }
 }
