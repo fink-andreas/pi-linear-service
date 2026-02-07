@@ -35,9 +35,9 @@ This project uses manual testing and integration testing:
 
 **CRITICAL RULE:** Work is strictly limited to issues within the current project only.
 
-- **STRICTLY** work only on issues that are in the current project (inno-cli):
+- **STRICTLY** work only on issues that are in the current project (pi-linear-service):
   ```bash
-  linear issue list --all-states --unassigned --project inno-cli
+  linear issue list --all-states --unassigned --project pi-linear-service
   ```
 - **NEVER** work on issues from other projects
 - **ALWAYS** list also unassigned issues

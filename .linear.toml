@@ -1,2 +1,6 @@
-team_id = "aa984082-56f6-4b42-a6aa-eed11f1648ad"
+# linear cli
+# https://github.com/schpet/linear-cli
+
+workspace = "patchday"
+team_id = "INN"
 issue_sort = "priority"
