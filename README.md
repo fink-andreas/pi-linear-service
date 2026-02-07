@@ -477,6 +477,288 @@ node test-recovery-behavior.js
 tmux attach -t pi_project_ABC-123
 ```
 
+## Acceptance Criteria Verification
+
+This section provides a checklist to verify that all acceptance criteria from the PRD are met.
+
+### Local Run Verification
+
+#### 1. Verify Environment Setup
+
+**Criterion:** Local run (`node index.js`) with a valid `.env`
+
+**Steps:**
+```bash
+# Verify .env file exists
+ls -la .env
+
+# Verify required variables are set
+grep -E "^(LINEAR_API_KEY|ASSIGNEE_ID)" .env
+```
+
+**Expected output:**
+```
+LINEAR_API_KEY=lin_api_...
+ASSIGNEE_ID=your_user_id
+```
+
+**Interpretation:** If both variables are set with non-empty values, environment setup is verified.
+
+---
+
+#### 2. Verify Immediate Poll on Startup
+
+**Criterion:** Immediate poll occurs on startup
+
+**Steps:**
+```bash
+# Run the service and check startup logs
+node index.js 2>&1 | head -20
+```
+
+**Expected output:**
+```
+{"timestamp":"...","level":"INFO","message":"Performing initial poll on startup"}
+{"timestamp":"...","level":"INFO","message":"Poll started"}
+```
+
+**Interpretation:** If you see "Performing initial poll on startup" followed by "Poll started", the immediate poll criterion is met.
+
+---
+
+#### 3. Verify Session Creation (Idempotence)
+
+**Criterion:** One tmux session per qualifying project is created, no duplicates on subsequent polls
+
+**Steps:**
+```bash
+# First poll - check sessions created
+node index.js &
+sleep 2
+tmux list-sessions | grep pi_project_
+pkill -f "node index.js"
+
+# Second poll - verify no duplicates
+node index.js &
+sleep 2
+tmux list-sessions | grep pi_project_
+pkill -f "node index.js"
+```
+
+**Expected output:**
+```
+# First poll: Sessions appear (e.g., 1 session)
+pi_project_ABC-123
+
+# Second poll: Same sessions (no increase in count)
+pi_project_ABC-123
+```
+
+**Interpretation:** If session count doesn't increase on second poll, idempotence is verified.
+
+---
+
+#### 4. Verify Health Detection (Exited Pane)
+
+**Criterion:** Exited pane/process ⇒ unhealthy immediately
+
+**Steps:**
+```bash
+# Create a test session with a command that exits immediately
+tmux new-session -d -s pi_test_123 "exit"
+
+# Run the service with health check enabled
+SESSION_HEALTH_MODE=basic SESSION_KILL_ON_UNHEALTHY=false node index.js &
+sleep 5
+journalctl --user -u pi-linear 2>&1 | grep -E "(unhealthy|Unhealthy)" | tail -5
+pkill -f "node index.js"
+```
+
+**Expected output:**
+```
+{"level":"INFO","message":"Unhealthy session detected","sessionName":"pi_test_123","reason":"Session has dead pane(s): %0"}
+```
+
+**Interpretation:** If the session is detected as unhealthy immediately after the pane exits, health detection is verified.
+
+---
+
+#### 5. Verify Kill/Restart with Cooldown
+
+**Criterion:** If `SESSION_KILL_ON_UNHEALTHY=true`, unhealthy sessions are killed and recreated, respecting cooldown
+
+**Steps:**
+```bash
+# Create a test unhealthy session
+tmux new-session -d -s pi_test_456 "exit"
+
+# Run service with kill enabled and short cooldown
+SESSION_HEALTH_MODE=basic SESSION_KILL_ON_UNHEALTHY=true SESSION_RESTART_COOLDOWN_SEC=10 node index.js &
+sleep 5
+
+# Check logs for kill
+journalctl --user -u pi-linear 2>&1 | grep -E "(killed|kill)" | tail -5
+
+# Check cooldown (should skip kill if within cooldown)
+sleep 3
+journalctl --user -u pi-linear 2>&1 | grep -i cooldown | tail -3
+
+pkill -f "node index.js"
+```
+
+**Expected output:**
+```
+# First detection (kill)
+{"level":"INFO","message":"Unhealthy session killed","sessionName":"pi_test_456"}
+
+# Within cooldown (skip)
+{"level":"INFO","message":"Unhealthy session (within cooldown)","sessionName":"pi_test_456","reason":"Within cooldown period"}
+```
+
+**Interpretation:** If kill happens once and then is skipped during cooldown, the kill/restart gating is verified.
+
+---
+
+### User Unit Deployment Verification
+
+#### 1. Verify Unit File Installation
+
+**Criterion:** `~/.config/systemd/user/pi-linear.service` works with `systemctl --user`
+
+**Steps:**
+```bash
+# Check unit file exists
+ls -la ~/.config/systemd/user/pi-linear.service
+
+# Verify unit file is valid
+systemctl --user cat pi-linear.service
+```
+
+**Expected output:**
+```
+[Unit]
+Description=pi-linear-service - Node.js daemon for Linear + tmux + pi integration
+...
+```
+
+**Interpretation:** If `systemctl --user cat` shows the unit file content without errors, installation is verified.
+
+---
+
+#### 2. Verify EnvironmentFile Usage
+
+**Criterion:** Uses `EnvironmentFile=`
+
+**Steps:**
+```bash
+# Check that EnvironmentFile is configured
+systemctl --user cat pi-linear.service | grep EnvironmentFile
+```
+
+**Expected output:**
+```
+EnvironmentFile=/home/user/pi-linear-service/.env
+```
+
+**Interpretation:** If `EnvironmentFile=` points to your `.env` file (not inline environment variables), this criterion is met.
+
+---
+
+#### 3. Verify Restart on Failure
+
+**Criterion:** Restarts on failure
+
+**Steps:**
+```bash
+# Check restart configuration
+systemctl --user cat pi-linear.service | grep -E "(Restart|RestartSec)"
+
+# Start the service
+systemctl --user start pi-linear.service
+
+# Check current status
+systemctl --user status pi-linear.service | grep -i restart
+
+# Stop the service
+systemctl --user stop pi-linear.service
+```
+
+**Expected output:**
+```
+Restart=on-failure
+RestartSec=5s
+```
+
+**Interpretation:** If `Restart=on-failure` and `RestartSec=` are configured, restart on failure is verified.
+
+---
+
+#### 4. Verify Log Viewing
+
+**Criterion:** README shows how to view logs with `journalctl --user -u pi-linear.service`
+
+**Steps:**
+```bash
+# View recent logs
+journalctl --user -u pi-linear.service -n 20
+
+# Follow logs in real-time (Ctrl+C to exit)
+journalctl --user -u pi-linear.service -f
+```
+
+**Expected output:**
+```
+Feb 07 17:50:01 hostname pi-linear[123]: {"timestamp":"...","level":"INFO","message":"Poll started"}
+...
+```
+
+**Interpretation:** If logs from the pi-linear service are displayed with timestamps and JSON entries, log viewing is verified.
+
+---
+
+#### 5. Verify Start-on-Boot for User
+
+**Criterion:** README shows how to ensure start-on-boot for user
+
+**Steps:**
+```bash
+# Check if lingering is enabled (allows user services to start on boot)
+loginctl show-user $USER | grep Linger
+
+# If not enabled, enable lingering
+loginctl enable-linger $USER
+
+# Verify it's enabled
+loginctl show-user $USER | grep Linger
+```
+
+**Expected output:**
+```
+Linger=yes
+```
+
+**Interpretation:** If `Linger=yes`, user services will start on boot. The command `loginctl enable-linger $USER` is documented in README.
+
+---
+
+### Verification Summary
+
+Use this checklist to ensure all acceptance criteria are verified:
+
+**Local Run:**
+- [ ] Environment setup (`.env` with `LINEAR_API_KEY` and `ASSIGNEE_ID`)
+- [ ] Immediate poll on startup
+- [ ] Session creation is idempotent (no duplicates)
+- [ ] Exited pane is detected as unhealthy
+- [ ] Kill/restart respects cooldown
+
+**User Unit Deployment:**
+- [ ] Unit file works with `systemctl --user`
+- [ ] Uses `EnvironmentFile=`
+- [ ] Restarts on failure
+- [ ] Logs viewable with `journalctl --user -u pi-linear.service`
+- [ ] Start-on-boot configured (`loginctl enable-linger`)
+
 ## Getting Help
 
 ### View All Options

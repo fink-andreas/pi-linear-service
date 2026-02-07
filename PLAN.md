@@ -1,59 +1,63 @@
-# INN-170: Structured Logging - Implementation Plan
+# INN-175: Acceptance Criteria Walkthrough - Implementation Plan
 
 ## Current State
 
-The project already has:
-- ✅ Startup config summary (masked secrets) in `logger.js` with `logConfig()`
-- ✅ Structured JSON logging with timestamps, levels, and data
-- ✅ Individual operation logging (Linear API, session creation, health checks)
+README.md exists with installation, configuration, and troubleshooting sections. No explicit acceptance criteria verification section exists.
 
 ## Requirements
 
-1. **Per poll metrics** - Track and log for each poll:
-   - Poll start/end timestamps
-   - Poll duration
-   - Issue count
-   - Project count
-   - Sessions created
-   - Unhealthy sessions detected
-   - Sessions killed
-   - Errors during poll
+Create a checklist-style section mapping each acceptance criterion to a quick verification step. All criteria must be explicitly covered and reproducible.
 
-2. **Readable in both terminal and journald** - Already satisfied with JSON format
+## Acceptance Criteria from PRD
+
+### Local Run (`node index.js`) with valid `.env`
+
+1. Immediate poll occurs on startup
+2. One tmux session per qualifying project created, no duplicates on subsequent polls
+3. Exited pane/process ⇒ unhealthy immediately
+4. If `SESSION_KILL_ON_UNHEALTHY=true`, unhealthy sessions owned by this service are killed and recreated on later polls if still required, respecting cooldown
+
+### User Unit Deployment
+
+1. `~/.config/systemd/user/pi-linear.service` works with `systemctl --user`
+2. Uses `EnvironmentFile=`
+3. Restarts on failure
+4. README shows how to view logs with `journalctl --user -u pi-linear.service`
+5. README shows how to ensure start-on-boot for user
 
 ## Implementation Plan
 
-### 1. Update `src/poller.js`
+### 1. Create Acceptance Criteria Verification section
 
-Add poll metrics tracking and consolidated logging:
+Add a new section to README.md after "Troubleshooting" with:
+- Overview of the verification process
+- Two main sections: Local Run Verification and User Unit Deployment Verification
+- Each criterion mapped to concrete verification steps
+- Commands to run
+- Expected output to look for
 
-**Poll Start Tracking:**
-- Add `pollStartTimestamp` at beginning of `performPoll()`
-- Log poll start with metrics placeholder
+### 2. Verification Structure
 
-**Metrics Collection:**
-- Collect all metrics from operations:
-  - `issueCount` - from fetchAssignedIssues
-  - `projectCount` - from groupIssuesByProject
-  - `sessionsCreated` - from createSessionsForProjects
-  - `unhealthyDetected`, `sessionsKilled`, `sessionsChecked` - from checkAndKillUnhealthySessions
-  - `errorCount` - track try/catch failures
+**Local Run Verification:**
+- Verify environment setup
+- Verify immediate poll on startup
+- Verify session creation (idempotence)
+- Verify health detection
+- Verify kill/restart with cooldown
 
-**Poll End Tracking:**
-- Add `pollEndTimestamp` at end of `performPoll()`
-- Calculate `pollDurationMs`
-- Log consolidated poll summary with all metrics
-
-### 2. File Structure
-
-**Files to modify:**
-- `src/poller.js` - Add poll metrics tracking and logging
-
-**No new files needed**
+**User Unit Deployment Verification:**
+- Verify unit file installation
+- Verify systemd commands work
+- Verify EnvironmentFile usage
+- Verify restart on failure
+- Verify log viewing
+- Verify start-on-boot configuration
 
 ## Definition of Done
 
-- [ ] Poll start/end logged with timestamps and duration
-- [ ] Poll summary includes: issue count, project count, sessions created, unhealthy sessions, kills, errors
-- [ ] Logs remain structured JSON (readable in terminal and journald)
-- [ ] Manual test: run service and verify poll metrics appear in logs
+- [ ] Acceptance criteria section added to README.md
+- [ ] All local run criteria covered with verification steps
+- [ ] All user unit deployment criteria covered with verification steps
+- [ ] Each criterion has clear commands to run
+- [ ] Each criterion has expected output indicators
+- [ ] All verification steps are reproducible
