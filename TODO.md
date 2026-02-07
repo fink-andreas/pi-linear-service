@@ -34,4 +34,8 @@
     - Verify tmux sessions are created as expected
     - Verify dry-run mode doesn't affect normal operation
 
-- [>] 7. Update Linear issue (Done + comment), commit, merge to main
+- [>] 7. Update Linear issue (Done + comment), commit, merge to main:
+    - Mark INN-177 as Done
+    - Add comment with summary of changes made
+    - Commit the feature branch
+    - Merge to main
