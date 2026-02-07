@@ -2,8 +2,9 @@
  * Polling loop implementation
  */
 
-import { info, debug } from './logger.js';
+import { info, debug, error as logError } from './logger.js';
 import { setLogLevel } from './logger.js';
+import { runSmokeQuery } from './linear.js';
 
 /**
  * Start the polling loop
@@ -17,6 +18,21 @@ export async function startPollLoop(config) {
     pollIntervalSec: config.pollIntervalSec,
     tmuxPrefix: config.tmuxPrefix,
   });
+
+  // INN-159: Run a simple query and log success/failure cleanly.
+  // IMPORTANT: Never throw here on transient API failures (daemon must keep running).
+  try {
+    info('Running Linear API smoke test query...');
+    const viewer = await runSmokeQuery(config.linearApiKey);
+    info('Linear API smoke query successful', {
+      viewerId: viewer?.id,
+      viewerName: viewer?.name,
+    });
+  } catch (err) {
+    logError('Linear API smoke query failed', {
+      error: err?.message || String(err),
+    });
+  }
 
   // The polling loop will be fully implemented in ISSUE-008
   debug('Poll loop skeleton (full implementation in ISSUE-008)');

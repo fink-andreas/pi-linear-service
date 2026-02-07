@@ -2,57 +2,126 @@
  * Linear GraphQL API client
  */
 
-import { error as logError, debug, info } from './logger.js';
+import { error as logError, debug } from './logger.js';
+import pkg from '../package.json' with { type: 'json' };
 
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+const USER_AGENT = `${pkg.name}/${pkg.version}`;
+
+function truncate(str, maxLen = 800) {
+  if (typeof str !== 'string') return str;
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + '…(truncated)';
+}
 
 /**
  * Execute a GraphQL query against Linear API
+ *
+ * Notes:
+ * - Logs HTTP failures and GraphQL `errors[]`
+ * - Throws on failures so callers can decide whether to abort or continue
+ *
  * @param {string} apiKey - Linear API key
  * @param {string} query - GraphQL query
  * @param {Object} variables - Query variables
+ * @param {Object} options
+ * @param {string} [options.operationName]
+ * @param {number} [options.timeoutMs=15000]
  * @returns {Promise<Object>} Query response data
- * @throws {Error} If request fails or GraphQL errors occur
  */
-export async function executeQuery(apiKey, query, variables = {}) {
+export async function executeQuery(apiKey, query, variables = {}, options = {}) {
+  const { operationName, timeoutMs = 15000 } = options;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
   try {
-    debug('Executing Linear GraphQL query', { query: query.split('\n')[0] });
+    debug('Executing Linear GraphQL query', {
+      operationName,
+      queryFirstLine: query?.split('\n')?.[0],
+    });
 
     const response = await fetch(LINEAR_GRAPHQL_URL, {
       method: 'POST',
       headers: {
-        'Authorization': apiKey,
+        Authorization: apiKey,
         'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
       },
-      body: JSON.stringify({ query, variables }),
+      body: JSON.stringify({
+        query,
+        variables,
+        ...(operationName ? { operationName } : {}),
+      }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await response.text().catch(() => '<failed to read response body>');
       logError('Linear API request failed', {
+        operationName,
         status: response.status,
         statusText: response.statusText,
-        error: errorText,
+        responseBodySnippet: truncate(errorText),
       });
-      throw new Error(`Linear API error: ${response.status} ${response.statusText}`);
+      throw new Error(`Linear API HTTP error: ${response.status} ${response.statusText}`);
     }
 
-    const result = await response.json();
+    let result;
+    try {
+      result = await response.json();
+    } catch (e) {
+      const raw = await response.text().catch(() => '<failed to read response body>');
+      logError('Linear API returned non-JSON response', {
+        operationName,
+        responseBodySnippet: truncate(raw),
+      });
+      throw new Error('Linear API returned invalid JSON');
+    }
 
-    // Check for GraphQL errors
-    if (result.errors && result.errors.length > 0) {
+    if (result?.errors?.length) {
       logError('GraphQL query returned errors', {
-        errors: result.errors.map(e => e.message),
+        operationName,
+        errors: result.errors.map((e) => ({
+          message: e.message,
+          path: e.path,
+          code: e.extensions?.code,
+          type: e.extensions?.type,
+        })),
       });
-      throw new Error(`GraphQL errors: ${result.errors.map(e => e.message).join(', ')}`);
+
+      const messages = result.errors.map((e) => e.message).join(', ');
+      throw new Error(`Linear GraphQL error(s): ${messages}`);
     }
 
-    debug('Linear GraphQL query successful');
+    debug('Linear GraphQL query successful', { operationName });
     return result.data;
   } catch (error) {
-    // Don't log here - let caller handle it
+    if (error?.name === 'AbortError') {
+      logError('Linear API request timed out', { operationName, timeoutMs });
+      throw new Error(`Linear API request timed out after ${timeoutMs}ms`);
+    }
+
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+/**
+ * Run a minimal smoke-test query against the Linear API.
+ *
+ * Definition of done for INN-159 requires a simple query and clean logging.
+ *
+ * @param {string} apiKey
+ * @returns {Promise<{id: string, name?: string}>}
+ */
+export async function runSmokeQuery(apiKey) {
+  const query = `query SmokeTest {\n  viewer {\n    id\n    name\n  }\n}`;
+  const data = await executeQuery(apiKey, query, {}, { operationName: 'SmokeTest' });
+  return data.viewer;
 }
 
 /**
