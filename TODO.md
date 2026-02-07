@@ -114,5 +114,29 @@
 
 - [x] 14. Update Linear issue with progress ✓
 - [x] 15. Final review and commit changes ✓
-- [ ] 16. Add comment to Linear issue with summary of changes
-- [ ] 17. Mark issue as Done
+- [x] 16. Add comment to Linear issue with summary of changes ✓
+- [x] 17. Mark issue as Done ✓
+
+## Summary
+
+All implementation steps for INN-180 have been completed:
+
+✓ Settings loader with JSON schema validation
+✓ Abstract SessionManager interface
+✓ TmuxSessionManager implementation (existing functionality)
+✓ ProcessSessionManager implementation (new functionality)
+✓ Config integration with environment merging
+✓ Poller updated to use session manager factory
+✓ Documentation updates (README, FUNCTIONALITY.md)
+✓ settings.json.example created
+✓ All tests passing (tmux manager, process manager, backward compatibility)
+✓ Linear issue updated with summary
+✓ Issue marked as Done
+
+**Key Features:**
+- Configurable session manager via ~/.pi/agent/extensions/pi-linear-service/settings.json
+- Support for 'tmux' (default) and 'process' session managers
+- Process manager: run any command with configurable args
+- Process tracking prevents duplicate processes
+- Health checks work for both manager types
+- Full backward compatibility (defaults to tmux without settings.json)
