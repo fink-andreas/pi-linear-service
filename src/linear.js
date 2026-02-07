@@ -2,7 +2,7 @@
  * Linear GraphQL API client
  */
 
-import { error as logError, warn, debug } from './logger.js';
+import { error as logError, warn, info, debug } from './logger.js';
 import pkg from '../package.json' with { type: 'json' };
 
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
@@ -169,11 +169,39 @@ export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit)
  * @returns {Object} Map of projectId -> { projectName, issueCount }
  */
 export function groupIssuesByProject(issues) {
-  // This will be fully implemented in ISSUE-007
-  // For now, return empty map
-  debug('groupIssuesByProject called (will be implemented in ISSUE-007)', {
+  const map = new Map();
+  let ignoredNoProject = 0;
+
+  for (const issue of issues) {
+    const project = issue?.project;
+    const projectId = project?.id;
+
+    if (!projectId) {
+      ignoredNoProject += 1;
+      debug('Ignoring issue with no project', {
+        issueId: issue?.id,
+        title: issue?.title,
+        state: issue?.state?.name,
+      });
+      continue;
+    }
+
+    const existing = map.get(projectId);
+    if (existing) {
+      existing.issueCount += 1;
+    } else {
+      map.set(projectId, {
+        projectName: project?.name,
+        issueCount: 1,
+      });
+    }
+  }
+
+  info('Grouped issues by project', {
     issueCount: issues.length,
+    projectCount: map.size,
+    ignoredNoProject,
   });
 
-  return new Map();
+  return map;
 }

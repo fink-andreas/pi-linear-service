@@ -15,7 +15,7 @@ Errors should be logged and **must not crash the daemon** (poll loop should keep
 
 ---
 
-## INN-160 — Implement assigned issues in open states query
+## INN-160 — Implement assigned issues in open states query (Done)
 
 ### Issue summary
 Query up to `LINEAR_PAGE_LIMIT` issues assigned to `ASSIGNEE_ID` where `state.name ∈ LINEAR_OPEN_STATES`.
@@ -27,29 +27,35 @@ Must include:
 
 If returned count hits the limit, log a truncation warning.
 
-### Repo exploration / where it fits
-- `src/config.js` already provides:
-  - `assigneeId`
-  - `linearOpenStates`
-  - `linearPageLimit`
-- `src/linear.js` already has placeholder `fetchAssignedIssues()`
+### Implemented
+- `src/linear.js`: `fetchAssignedIssues()` implemented with `pageInfo.hasNextPage` truncation detection + WARN log
 
-### Reference implementation (linear-cli)
-- `../linear-cli/src/utils/linear.ts` shows querying `issues(filter: $filter, first: $first)` and reading `pageInfo.hasNextPage`.
+---
+
+## INN-161 — Group issues by project
+
+### Issue summary
+Ignore issues with no `project` (log at info/debug). Produce `Map(projectId → { projectName, issueCount })`.
+Definition of done: logs issue count, project count, ignored-no-project count.
+
+### Repo exploration / where it fits
+- `src/linear.js` contains placeholder `groupIssuesByProject()`.
+- `src/poller.js` currently fetches issues at startup (for manual verification).
 
 ### Implementation approach
-1. Implement `fetchAssignedIssues(apiKey, assigneeId, openStates, limit)` using `executeQuery()`.
-2. GraphQL query shape:
-   - `issues(first: $first, filter: { assignee: { id: { eq: $assigneeId } }, state: { name: { in: $stateNames } } })`
-   - request `nodes { id title state { name } project { id name } }`
-   - request `pageInfo { hasNextPage }` to detect truncation reliably
-3. Return `{ issues, truncated }` where `truncated = pageInfo.hasNextPage || nodes.length >= limit`.
-4. If truncated, `warn()` once with a clear message mentioning `LINEAR_PAGE_LIMIT`.
+1. Implement `groupIssuesByProject(issues)`:
+   - iterate over issues
+   - if missing `project` or `project.id`, increment `ignoredNoProject` and log at debug/info
+   - otherwise aggregate counts into a `Map`
+2. Log a summary at the end:
+   - total issues
+   - projects count
+   - ignored count
+3. (Optional) call it in `poller.js` after fetching issues for a visible manual verification.
 
 ### Manual verification
-- Run service with real `.env` key:
-  - call `fetchAssignedIssues()` (via quick log call in `poller.js` temporarily or a one-off script) and verify it returns issues and logs truncation when applicable.
+- With real Linear API key and a valid `ASSIGNEE_ID`, run `node index.js` and verify summary log lines.
 
 ### Files expected to change
 - `src/linear.js`
-- (optional for manual test) `src/poller.js`
+- `src/poller.js` (optional)

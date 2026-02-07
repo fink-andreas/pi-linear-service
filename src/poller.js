@@ -4,7 +4,7 @@
 
 import { info, debug, error as logError } from './logger.js';
 import { setLogLevel } from './logger.js';
-import { runSmokeQuery, fetchAssignedIssues } from './linear.js';
+import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
 
 /**
  * Start the polling loop
@@ -52,6 +52,11 @@ export async function startPollLoop(config) {
     info('Fetched assigned issues', {
       issueCount: issues.length,
       truncated,
+    });
+
+    const byProject = groupIssuesByProject(issues);
+    info('Projects with qualifying issues', {
+      projectCount: byProject.size,
     });
   } catch (err) {
     logError('Failed to fetch assigned issues', {
