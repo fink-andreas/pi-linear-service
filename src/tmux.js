@@ -296,3 +296,141 @@ export async function getTmuxVersion() {
     return null;
   }
 }
+
+/**
+ * In-memory map to track last kill attempt timestamps
+ * Key: sessionName, Value: timestamp (milliseconds since epoch)
+ */
+const lastKillAttempts = new Map();
+
+/**
+ * Check if a session is within cooldown period after a kill attempt
+ * @param {string} sessionName - Session name to check
+ * @param {number} cooldownSec - Cooldown period in seconds
+ * @returns {boolean} True if session is within cooldown period
+ */
+export function isWithinCooldown(sessionName, cooldownSec) {
+  const lastAttempt = lastKillAttempts.get(sessionName);
+  if (!lastAttempt) {
+    return false;
+  }
+  const elapsedMs = Date.now() - lastAttempt;
+  const cooldownMs = cooldownSec * 1000;
+  return elapsedMs < cooldownMs;
+}
+
+/**
+ * Get remaining cooldown time for a session
+ * @param {string} sessionName - Session name to check
+ * @param {number} cooldownSec - Cooldown period in seconds
+ * @returns {number} Remaining cooldown time in seconds (0 if not in cooldown)
+ */
+export function getRemainingCooldown(sessionName, cooldownSec) {
+  const lastAttempt = lastKillAttempts.get(sessionName);
+  if (!lastAttempt) {
+    return 0;
+  }
+  const elapsedMs = Date.now() - lastAttempt;
+  const cooldownMs = cooldownSec * 1000;
+  const remainingMs = cooldownMs - elapsedMs;
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+/**
+ * Record a kill attempt for a session
+ * @param {string} sessionName - Session name
+ */
+export function recordKillAttempt(sessionName) {
+  lastKillAttempts.set(sessionName, Date.now());
+}
+
+/**
+ * Clear kill attempt timestamp for a session
+ * @param {string} sessionName - Session name
+ */
+export function clearKillAttempt(sessionName) {
+  lastKillAttempts.delete(sessionName);
+}
+
+/**
+ * Attempt to kill an unhealthy owned session with cooldown protection
+ *
+ * @param {string} sessionName - Session name to kill
+ * @param {string} prefix - Session prefix for ownership check
+ * @param {Object} config - Configuration object
+ * @returns {Promise<{killed: boolean, reason: string}>}
+ */
+export async function attemptKillUnhealthySession(sessionName, prefix, config) {
+  // Only operate on owned sessions
+  if (!isOwnedSession(sessionName, prefix)) {
+    return {
+      killed: false,
+      reason: 'Session not owned by this service',
+    };
+  }
+
+  // Check if session is unhealthy
+  const healthResult = await checkSessionHealth(sessionName, config.sessionHealthMode);
+  if (healthResult.healthy) {
+    return {
+      killed: false,
+      reason: 'Session is healthy',
+    };
+  }
+
+  // Log unhealthy detection
+  warn('Unhealthy session detected', {
+    sessionName,
+    reason: healthResult.reason,
+    paneCount: healthResult.paneCount,
+    hasDeadPanes: healthResult.hasDeadPanes,
+  });
+
+  // Check if kill on unhealthy is enabled
+  if (!config.sessionKillOnUnhealthy) {
+    return {
+      killed: false,
+      reason: 'SESSION_KILL_ON_UNHEALTHY is disabled',
+    };
+  }
+
+  // Check cooldown
+  if (isWithinCooldown(sessionName, config.sessionRestartCooldownSec)) {
+    const remainingSec = getRemainingCooldown(sessionName, config.sessionRestartCooldownSec);
+    info('Kill skipped: session within cooldown period', {
+      sessionName,
+      remainingSec,
+      cooldownSec: config.sessionRestartCooldownSec,
+    });
+    return {
+      killed: false,
+      reason: `Within cooldown period (${remainingSec}s remaining)`,
+    };
+  }
+
+  // Outside cooldown, attempt to kill session
+  info('Attempting to kill unhealthy session', {
+    sessionName,
+    reason: healthResult.reason,
+  });
+
+  const killed = await killSession(sessionName);
+  if (killed) {
+    recordKillAttempt(sessionName);
+    info('Unhealthy session killed', {
+      sessionName,
+    });
+    return {
+      killed: true,
+      reason: 'Session killed successfully',
+    };
+  } else {
+    logError('Failed to kill unhealthy session', {
+      sessionName,
+    });
+    return {
+      killed: false,
+      reason: 'Failed to kill session',
+    };
+  }
+}

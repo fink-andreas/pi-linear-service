@@ -129,3 +129,39 @@
   - Test 6: Health check includes pane details
 - [x] 3. Definition of done met: can detect a deliberately broken/dead session as unhealthy immediately
 - [x] 4. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-168 Implement kill/restart gating (Done)
+
+- [x] 1. Add cooldown tracking functions in src/tmux.js:
+  - isWithinCooldown(): Check if session is in cooldown period
+  - getRemainingCooldown(): Get remaining cooldown time
+  - recordKillAttempt(): Record kill attempt timestamp
+  - clearKillAttempt(): Clear kill attempt timestamp
+- [x] 2. Implement attemptKillUnhealthySession() in src/tmux.js:
+  - Only operate on owned sessions (isOwnedSession check)
+  - Check health status using checkSessionHealth
+  - Log unhealthy detections
+  - Respect SESSION_KILL_ON_UNHEALTHY configuration
+  - Check cooldown before killing
+  - Kill session if outside cooldown
+  - Log cooldown decision
+  - Return {killed, reason} status
+- [x] 3. Integrate into polling loop (src/poller.js):
+  - Add checkAndKillUnhealthySessions() function
+  - Iterate through all sessions
+  - Call attemptKillUnhealthySession for each
+  - Track and log health check statistics
+- [x] 4. Create test script (test-kill-restart-gating.js):
+  - Test 1: Unowned session not killed
+  - Test 2: Healthy session not killed
+  - Test 3: Unhealthy session detection
+  - Test 4: SESSION_KILL_ON_UNHEALTHY=false prevents kill
+  - Test 5: Kill skipped within cooldown
+  - Test 6: Kill proceeds after cooldown expires
+  - Test 7: Cooldown tracking verification
+- [x] 5. Definition of done met:
+  - Avoids kill loops (via cooldown mechanism)
+  - Logs unhealthy detections and kill/cooldown outcomes
+- [x] 6. Update Linear issue (Done + comment), commit, merge to main.

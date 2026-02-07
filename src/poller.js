@@ -5,7 +5,7 @@
 import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
 import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
-import { ensureSession } from './tmux.js';
+import { ensureSession, listSessions, attemptKillUnhealthySession } from './tmux.js';
 
 /**
  * Perform a single poll
@@ -68,6 +68,16 @@ async function performPoll(config) {
       error: err?.message || String(err),
     });
   }
+
+  // INN-168: Check and kill unhealthy owned sessions
+  try {
+    const healthCheckResult = await checkAndKillUnhealthySessions(config);
+    info('Health check completed', healthCheckResult);
+  } catch (err) {
+    logError('Failed to check/kill unhealthy sessions', {
+      error: err?.message || String(err),
+    });
+  }
 }
 
 /**
@@ -100,6 +110,65 @@ async function createSessionsForProjects(byProject, config) {
   }
 
   return createdCount;
+}
+
+/**
+ * Check and kill unhealthy owned sessions
+ *
+ * @param {Object} config - Configuration object
+ * @returns {Promise<{sessionsChecked: number, unhealthyDetected: number, killed: number, skipped: number}>}
+ */
+async function checkAndKillUnhealthySessions(config) {
+  // Get all sessions
+  const sessions = await listSessions();
+
+  let sessionsChecked = 0;
+  let unhealthyDetected = 0;
+  let killed = 0;
+  let skipped = 0;
+
+  for (const sessionName of sessions) {
+    sessionsChecked++;
+
+    const result = await attemptKillUnhealthySession(
+      sessionName,
+      config.tmuxPrefix,
+      config
+    );
+
+    if (result.reason === 'Session not owned by this service') {
+      // Not owned, skip
+      skipped++;
+      debug('Skipping unowned session', { sessionName });
+    } else if (result.reason === 'Session is healthy') {
+      // Healthy, no action needed
+      debug('Session is healthy', { sessionName });
+    } else if (result.reason === 'SESSION_KILL_ON_UNHEALTHY is disabled') {
+      // Unhealthy but kill disabled
+      unhealthyDetected++;
+      info('Unhealthy session detected (kill disabled)', { sessionName, reason: result.reason });
+    } else if (result.reason.includes('Within cooldown period')) {
+      // Unhealthy but within cooldown
+      unhealthyDetected++;
+      skipped++;
+      info('Unhealthy session (within cooldown)', { sessionName, reason: result.reason });
+    } else {
+      // Unhealthy
+      unhealthyDetected++;
+      if (result.killed) {
+        killed++;
+      } else {
+        skipped++;
+      }
+    }
+  }
+
+  return {
+    sessionsChecked,
+    unhealthyDetected,
+    killed,
+    skipped,
+  };
 }
 
 /**
