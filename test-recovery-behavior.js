@@ -14,6 +14,7 @@ const TMUX_PREFIX = 'pi_project_';
 const TEST_PROJECT_ID = 'RECOVERY-TEST';
 const TEST_PROJECT_NAME = 'Recovery Test Project';
 const TEST_SESSION_NAME = `${TMUX_PREFIX}${TEST_PROJECT_ID}`;
+const COMMAND_TEMPLATE = 'pi -p "You are working on project: ${projectName} list issues and choose one to work on, if an issue is already in progress - continue"';
 
 async function runTests() {
   info('Testing recovery behavior...', {
@@ -48,7 +49,8 @@ async function runTests() {
   // Step 2: Simulate first poll - create session
   info('\nStep 2: Simulate first poll - create session');
   try {
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const projectData = { issueCount: 3 };
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, projectData, COMMAND_TEMPLATE);
     await new Promise(resolve => setTimeout(resolve, 500)); // Wait for session to be fully created
 
     if (result.created && !result.existed) {
@@ -103,7 +105,7 @@ async function runTests() {
   // Step 5: Simulate second poll - project still qualifies (session should be recreated)
   info('\nStep 5: Simulate second poll - project still has qualifying issues');
   try {
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, { issueCount: 0 }, COMMAND_TEMPLATE);
     await new Promise(resolve => setTimeout(resolve, 500)); // Wait for session to be created
 
     if (result.created && !result.existed) {
@@ -139,7 +141,7 @@ async function runTests() {
   info('\nStep 7: Test idempotence - multiple polls should not create duplicates');
   try {
     for (let i = 0; i < 5; i++) {
-      const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+      const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, { issueCount: 0 }, COMMAND_TEMPLATE);
       if (!result.created && result.existed) {
         info(`Poll ${i + 3}: Session already exists (idempotent)`);
       } else {
@@ -192,7 +194,7 @@ async function runTests() {
     }
 
     // Recreate (simulating next poll)
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, { issueCount: 0 }, COMMAND_TEMPLATE);
     await new Promise(resolve => setTimeout(resolve, 500));
 
     // Verify recreated
@@ -215,8 +217,9 @@ async function runTests() {
     await killSession(TEST_SESSION_NAME);
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Create unhealthy session
-    await ensureSession(TEST_SESSION_NAME, 'exit'); // Command exits immediately
+    // Create unhealthy session with custom template that exits immediately
+    const exitTemplate = 'exit'; // Just runs 'exit' command, which exits immediately
+    const result1 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, { issueCount: 0 }, exitTemplate);
     await new Promise(resolve => setTimeout(resolve, 500));
 
     // Session should be unhealthy (either doesn't exist or has dead panes)
@@ -228,12 +231,12 @@ async function runTests() {
     }
 
     // Next poll should recreate it (if project still qualifies)
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result2 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, { issueCount: 0 }, COMMAND_TEMPLATE);
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const finalExists = await hasSession(TEST_SESSION_NAME);
     if (finalExists) {
-      info('✓ Session recreated after health kill', { result });
+      info('✓ Session recreated after health kill', { result2 });
     } else {
       logError('✗ Session should be recreated');
       process.exit(1);
