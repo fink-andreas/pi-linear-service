@@ -183,3 +183,25 @@
 - [x] 3. All tests passed - error isolation verified
 - [x] 4. Definition of done met: simulated failures don't stop future polls
 - [x] 5. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-169 Recovery behavior validation (Done)
+
+- [x] 1. Create comprehensive recovery behavior test (test-recovery-behavior.js):
+  - Step 1: Verify no session exists initially
+  - Step 2: Simulate first poll - create session
+  - Step 3: Verify session exists with correct configuration
+  - Step 4: Simulate external kill
+  - Step 5: Simulate second poll - session should be recreated
+  - Step 6: Verify session exists after recovery
+  - Step 7: Test idempotence - multiple polls should not create duplicates
+  - Step 8: Verify only one session exists
+  - Step 9: Full recovery cycle (kill, wait, recreate)
+  - Step 10: Simulate health check killing and recovery
+- [x] 2. Test validates ensureSession() idempotency
+- [x] 3. Test validates recovery after external kill
+- [x] 4. Test validates recovery after health kill
+- [x] 5. Note: Requires tmux to be installed to run tests
+- [x] 6. Definition of done met: matches acceptance criteria end-to-end
+- [x] 7. Update Linear issue (Done + comment), commit, merge to main.
