@@ -1,63 +1,55 @@
-# PLAN — INN-159 Implement Linear GraphQL client
+# PLAN
 
-## Issue summary (INN-159)
+## INN-159 — Implement Linear GraphQL client (Done)
+
+### Issue summary (INN-159)
 Implement a Linear GraphQL client that POSTs to `https://api.linear.app/graphql` with an `Authorization` header. Must handle:
 - HTTP errors
 - GraphQL `errors[]`
 
 Errors should be logged and **must not crash the daemon** (poll loop should keep running). Definition of done: run a simple query and log success/failure cleanly.
 
-## Project exploration (current repo)
-Top-level structure (from `tree -L 2`):
-- `index.js` — boot sequence: banner → validate env → start poll loop
-- `src/config.js` — env parsing/validation; requires `LINEAR_API_KEY`, `ASSIGNEE_ID`
-- `src/poller.js` — currently a skeleton (does not yet poll)
-- `src/linear.js` — already contains `executeQuery()` (fetch-based) plus placeholders for later issues
-- `src/logger.js` — structured logging helpers
+### Implemented
+- `src/linear.js`: hardened `executeQuery()` and added a smoke query
+- `src/poller.js`: runs smoke query on startup and logs success/failure without throwing
 
-### Current Linear client status (`src/linear.js`)
-- Has `executeQuery(apiKey, query, variables)` that uses `fetch` against `https://api.linear.app/graphql`
-- Sends headers: `Authorization: apiKey`, `Content-Type: application/json`
-- On non-2xx: logs details and throws
-- On `result.errors`: logs messages and throws
+---
 
-Gaps vs INN-159 definition-of-done:
-- No single “smoke test” query wired into startup/poll loop to demonstrate success/failure behavior
-- Daemon-level error handling policy not yet implemented (poller is skeleton), so “don’t crash daemon” needs an explicit pattern (catch + log + continue)
-- Missing request metadata that is useful in practice (e.g., `User-Agent`, request timeout/abort)
-- Error logging could be standardized (include operation name, status, request id if any)
+## INN-160 — Implement assigned issues in open states query
 
-## Reference implementation to consult (linear-cli)
-User provided: `../linear-cli/`.
-Relevant file:
-- `../linear-cli/src/utils/graphql.ts`
-  - Uses `graphql-request` client
-  - Sets `Authorization: apiKey`
-  - Adds `User-Agent: schpet-linear-cli/<version>`
-  - Has utilities for extracting GraphQL error messages
+### Issue summary
+Query up to `LINEAR_PAGE_LIMIT` issues assigned to `ASSIGNEE_ID` where `state.name ∈ LINEAR_OPEN_STATES`.
+Must include:
+- `issue.id`
+- `issue.title` (optional for logs)
+- `state.name`
+- `project { id name }`
 
-We won’t copy the dependency stack (this service is plain Node + fetch), but we can copy patterns:
-- Always include a `User-Agent`
-- Normalize error messages
+If returned count hits the limit, log a truncation warning.
 
-## Implementation approach
-1. Keep using Node’s built-in `fetch` (Node >=18) to avoid adding dependencies.
-2. Harden `executeQuery()`:
-   - Add `User-Agent` header (e.g., `pi-linear-service/<version>` from package.json)
-   - Add optional timeout via `AbortController` (small helper; configurable later if needed)
-   - Improve error object returned/thrown to include:
-     - `httpStatus`, `httpStatusText`, `graphQLErrors` (array), maybe `responseBodySnippet`
-3. Add a small exported helper like `testLinearConnection(config)` or `runSmokeQuery(apiKey)` that runs a simple query (e.g. `query { viewer { id name } }`).
-4. Ensure daemon does not crash:
-   - In `startPollLoop()`, call the smoke query and catch/log failures (do not throw).
-   - Future poll iterations must wrap Linear calls in try/catch.
+### Repo exploration / where it fits
+- `src/config.js` already provides:
+  - `assigneeId`
+  - `linearOpenStates`
+  - `linearPageLimit`
+- `src/linear.js` already has placeholder `fetchAssignedIssues()`
 
-## Files expected to change
-- `src/linear.js` — improve `executeQuery`, add `smokeTestQuery()` helper
-- `src/poller.js` — call smoke test on startup and log success/failure without throwing
-- `package.json` (optional) — expose version to build User-Agent (can read from `process.env.npm_package_version` or read package.json once)
+### Reference implementation (linear-cli)
+- `../linear-cli/src/utils/linear.ts` shows querying `issues(filter: $filter, first: $first)` and reading `pageInfo.hasNextPage`.
 
-## Manual verification (per project AGENTS.md)
-- Reality check:
-  - `LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js` should start and log a clear failure from the smoke query but **not crash** (process keeps running once poll loop exists; for now at least it should reach “service ready” without exiting non-zero).
-  - With a real key: smoke query logs success.
+### Implementation approach
+1. Implement `fetchAssignedIssues(apiKey, assigneeId, openStates, limit)` using `executeQuery()`.
+2. GraphQL query shape:
+   - `issues(first: $first, filter: { assignee: { id: { eq: $assigneeId } }, state: { name: { in: $stateNames } } })`
+   - request `nodes { id title state { name } project { id name } }`
+   - request `pageInfo { hasNextPage }` to detect truncation reliably
+3. Return `{ issues, truncated }` where `truncated = pageInfo.hasNextPage || nodes.length >= limit`.
+4. If truncated, `warn()` once with a clear message mentioning `LINEAR_PAGE_LIMIT`.
+
+### Manual verification
+- Run service with real `.env` key:
+  - call `fetchAssignedIssues()` (via quick log call in `poller.js` temporarily or a one-off script) and verify it returns issues and logs truncation when applicable.
+
+### Files expected to change
+- `src/linear.js`
+- (optional for manual test) `src/poller.js`

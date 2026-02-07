@@ -4,7 +4,7 @@
 
 import { info, debug, error as logError } from './logger.js';
 import { setLogLevel } from './logger.js';
-import { runSmokeQuery } from './linear.js';
+import { runSmokeQuery, fetchAssignedIssues } from './linear.js';
 
 /**
  * Start the polling loop
@@ -30,6 +30,31 @@ export async function startPollLoop(config) {
     });
   } catch (err) {
     logError('Linear API smoke query failed', {
+      error: err?.message || String(err),
+    });
+  }
+
+  // INN-160: Query assigned issues in open states (up to LINEAR_PAGE_LIMIT)
+  try {
+    info('Fetching assigned issues in open states...', {
+      assigneeId: config.assigneeId,
+      openStates: config.linearOpenStates,
+      limit: config.linearPageLimit,
+    });
+
+    const { issues, truncated } = await fetchAssignedIssues(
+      config.linearApiKey,
+      config.assigneeId,
+      config.linearOpenStates,
+      config.linearPageLimit
+    );
+
+    info('Fetched assigned issues', {
+      issueCount: issues.length,
+      truncated,
+    });
+  } catch (err) {
+    logError('Failed to fetch assigned issues', {
       error: err?.message || String(err),
     });
   }

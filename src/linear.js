@@ -2,7 +2,7 @@
  * Linear GraphQL API client
  */
 
-import { error as logError, debug } from './logger.js';
+import { error as logError, warn, debug } from './logger.js';
 import pkg from '../package.json' with { type: 'json' };
 
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
@@ -133,17 +133,33 @@ export async function runSmokeQuery(apiKey) {
  * @returns {Promise<Object>} Object with issues array, truncated flag
  */
 export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit) {
-  // This will be fully implemented in ISSUE-006
-  // For now, return a placeholder structure
-  debug('fetchAssignedIssues called (will be implemented in ISSUE-006)', {
+  const query = `query FetchAssignedIssues($assigneeId: ID!, $stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      assignee: { id: { eq: $assigneeId } }\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
+
+  const variables = {
     assigneeId,
-    openStates,
-    limit,
+    stateNames: openStates,
+    first: limit,
+  };
+
+  const data = await executeQuery(apiKey, query, variables, {
+    operationName: 'FetchAssignedIssues',
   });
 
+  const nodes = data?.issues?.nodes ?? [];
+  const hasNextPage = Boolean(data?.issues?.pageInfo?.hasNextPage);
+
+  const truncated = hasNextPage || nodes.length >= limit;
+  if (truncated) {
+    warn('Linear issues query may be truncated by LINEAR_PAGE_LIMIT', {
+      limit,
+      returned: nodes.length,
+      hasNextPage,
+    });
+  }
+
   return {
-    issues: [],
-    truncated: false,
+    issues: nodes,
+    truncated,
   };
 }
 

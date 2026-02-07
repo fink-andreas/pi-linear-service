@@ -1,4 +1,6 @@
-# TODO — INN-159 Implement Linear GraphQL client
+# TODO
+
+## INN-159 Implement Linear GraphQL client (Done)
 
 - [x] 1. Inspect current logging + linear client usage; decide where to run the smoke-test query (startup in poller vs index).
   - Decision: run once at poll-loop startup (`src/poller.js`) after `setLogLevel()`, and **catch+log** so the daemon can keep running.
@@ -12,3 +14,14 @@
   - `LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js` logs a clean failure and exits/continues as intended
   - `node index.js` with real `.env` key logs success
 - [x] 5. Ensure repo is clean and implementation matches INN-159 definition of done; update Linear issue with summary + files changed.
+
+---
+
+## INN-160 Implement assigned issues in open states query
+
+- [x] 1. Implement `fetchAssignedIssues()` in `src/linear.js` using a GraphQL query filtered by `assigneeId` + `state.name in openStates` and requesting `pageInfo.hasNextPage`.
+- [x] 2. Add truncation detection + warning when results reach `LINEAR_PAGE_LIMIT`.
+- [x] 3. Manual test with real `.env` key: verify it returns issues and logs truncation warning when applicable.
+  - Verified with `ASSIGNEE_ID=<viewerId>`: returns issues
+  - Verified with `LINEAR_PAGE_LIMIT=1`: logs truncation warning
+- [>] 4. Update Linear issue (Done + comment), commit, merge to main.
