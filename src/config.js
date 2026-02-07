@@ -64,21 +64,49 @@ export function validateEnv() {
     );
   }
 
+  // Validate health mode
+  const validHealthModes = ['none', 'basic'];
+  const sessionHealthMode = process.env.SESSION_HEALTH_MODE || 'basic';
+  if (!validHealthModes.includes(sessionHealthMode)) {
+    throw new Error(
+      `Invalid SESSION_HEALTH_MODE: "${sessionHealthMode}". ` +
+      `Valid options: ${validHealthModes.join(', ')}`
+    );
+  }
+
+  // Validate poll interval (must be positive)
+  const pollIntervalSec = parseEnvInt('POLL_INTERVAL_SEC', 300);
+  if (pollIntervalSec <= 0) {
+    throw new Error('POLL_INTERVAL_SEC must be a positive number');
+  }
+
+  // Validate page limit (must be positive)
+  const linearPageLimit = parseEnvInt('LINEAR_PAGE_LIMIT', 100);
+  if (linearPageLimit <= 0) {
+    throw new Error('LINEAR_PAGE_LIMIT must be a positive number');
+  }
+
+  // Validate cooldown (must be non-negative)
+  const sessionRestartCooldownSec = parseEnvInt('SESSION_RESTART_COOLDOWN_SEC', 60);
+  if (sessionRestartCooldownSec < 0) {
+    throw new Error('SESSION_RESTART_COOLDOWN_SEC must be a non-negative number');
+  }
+
   return {
     // Required
     linearApiKey: process.env.LINEAR_API_KEY,
     assigneeId: process.env.ASSIGNEE_ID,
 
     // Optional - Polling
-    pollIntervalSec: parseEnvInt('POLL_INTERVAL_SEC', 300),
+    pollIntervalSec,
     tmuxPrefix: process.env.TMUX_PREFIX || 'pi_project_',
     linearOpenStates: parseEnvList('LINEAR_OPEN_STATES', ['Todo', 'In Progress']),
-    linearPageLimit: parseEnvInt('LINEAR_PAGE_LIMIT', 100),
+    linearPageLimit,
 
     // Optional - Health & recovery
-    sessionHealthMode: process.env.SESSION_HEALTH_MODE || 'basic',
+    sessionHealthMode,
     sessionKillOnUnhealthy: parseEnvBool('SESSION_KILL_ON_UNHEALTHY', false),
-    sessionRestartCooldownSec: parseEnvInt('SESSION_RESTART_COOLDOWN_SEC', 60),
+    sessionRestartCooldownSec,
 
     // Optional - Logging
     logLevel: process.env.LOG_LEVEL || 'info',
