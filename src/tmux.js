@@ -114,12 +114,49 @@ export async function listPanes(sessionName) {
 
 /**
  * Check if a session name matches the ownership pattern
+ * Session name format: ${TMUX_PREFIX}${projectId}
+ * Example: pi_project_ABC-123 where TMUX_PREFIX=pi_project_
+ *
  * @param {string} sessionName - Session name to check
- * @param {string} prefix - Prefix to match
+ * @param {string} prefix - Prefix to match (e.g., 'pi_project_')
  * @returns {boolean} True if session name is owned by this service
  */
 export function isOwnedSession(sessionName, prefix) {
-  return sessionName.startsWith(prefix) && sessionName.length > prefix.length;
+  // Must start with the prefix
+  if (!sessionName.startsWith(prefix)) {
+    return false;
+  }
+
+  // Extract what comes after the prefix (should be the projectId)
+  const suffix = sessionName.substring(prefix.length);
+
+  // Must have something after the prefix (the projectId)
+  if (suffix.length === 0) {
+    return false;
+  }
+
+  // Project IDs typically follow patterns like ABC-123 or PROJ-456
+  // Require at least one alphanumeric character or hyphen
+  // This is strict enough to avoid killing random sessions
+  const projectIdPattern = /^[a-zA-Z0-9-]+$/;
+  if (!projectIdPattern.test(suffix)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Extract projectId from an owned session name
+ * @param {string} sessionName - Session name (e.g., 'pi_project_ABC-123')
+ * @param {string} prefix - Prefix (e.g., 'pi_project_')
+ * @returns {string|null} ProjectId if session is owned, null otherwise
+ */
+export function extractProjectId(sessionName, prefix) {
+  if (!isOwnedSession(sessionName, prefix)) {
+    return null;
+  }
+  return sessionName.substring(prefix.length);
 }
 
 /**

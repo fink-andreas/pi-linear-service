@@ -67,3 +67,20 @@
   - Verify return codes and output capture for valid/invalid commands
 - [x] 3. Run tests to verify implementation (test script created; requires tmux to be installed to run)
 - [x] 4. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-165 Session naming & ownership rule (Done)
+
+- [x] 1. Implement stricter isOwnedSession() in src/tmux.js:
+  - Session name format: ${TMUX_PREFIX}${projectId}
+  - Must start with TMUX_PREFIX
+  - Must have valid projectId after prefix (alphanumeric or hyphen)
+  - Strict validation to avoid killing random sessions
+- [x] 2. Add extractProjectId() helper to extract projectId from owned session names
+- [x] 3. Create comprehensive test suite (test-session-ownership.js):
+  - 15 test cases for isOwnedSession() (owned and unowned sessions)
+  - 5 test cases for extractProjectId()
+  - All 20 tests passed
+- [x] 4. Definition of done met: owned/unowned classification covered with sample cases
+- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
