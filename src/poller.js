@@ -5,6 +5,7 @@
 import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
 import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
+import { ensureSession } from './tmux.js';
 
 /**
  * Perform a single poll
@@ -27,6 +28,7 @@ async function performPoll(config) {
   }
 
   // INN-160: Query assigned issues in open states (up to LINEAR_PAGE_LIMIT)
+  let byProject = new Map();
   try {
     info('Fetching assigned issues in open states...', {
       assigneeId: config.assigneeId,
@@ -46,7 +48,7 @@ async function performPoll(config) {
       truncated,
     });
 
-    const byProject = groupIssuesByProject(issues);
+    byProject = groupIssuesByProject(issues);
     info('Projects with qualifying issues', {
       projectCount: byProject.size,
       projects: Array.from(byProject.keys()),
@@ -56,6 +58,48 @@ async function performPoll(config) {
       error: err?.message || String(err),
     });
   }
+
+  // INN-166: Create sessions for projects with qualifying issues (idempotent)
+  try {
+    const createdCount = await createSessionsForProjects(byProject, config);
+    info('Session creation completed', { createdCount });
+  } catch (err) {
+    logError('Failed to create sessions', {
+      error: err?.message || String(err),
+    });
+  }
+}
+
+/**
+ * Create tmux sessions for projects with qualifying issues
+ * This is idempotent - won't create duplicate sessions
+ *
+ * @param {Map<string, Object>} byProject - Map of projectId -> {projectName, issueCount}
+ * @param {Object} config - Configuration object
+ * @returns {Promise<number>} Number of sessions created in this poll
+ */
+async function createSessionsForProjects(byProject, config) {
+  let createdCount = 0;
+
+  for (const [projectId, { projectName }] of byProject) {
+    const sessionName = `${config.tmuxPrefix}${projectId}`;
+    const result = await ensureSession(sessionName, projectName);
+
+    if (result.created) {
+      createdCount++;
+      debug('Session created this poll', {
+        sessionName,
+        projectName,
+      });
+    } else if (result.existed) {
+      debug('Session already exists', {
+        sessionName,
+        projectName,
+      });
+    }
+  }
+
+  return createdCount;
 }
 
 /**

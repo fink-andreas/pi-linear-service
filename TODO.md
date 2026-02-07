@@ -84,3 +84,26 @@
   - All 20 tests passed
 - [x] 4. Definition of done met: owned/unowned classification covered with sample cases
 - [x] 5. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-166 Idempotent create session if missing (Done)
+
+- [x] 1. Implement ensureSession() in src/tmux.js:
+  - Check if session exists using hasSession()
+  - If missing, create detached session running 'pi --prompt "pi [${projectName}] > "'
+  - Return status indicating whether session was created or already existed
+- [x] 2. Integrate session creation into polling loop (src/poller.js):
+  - Add createSessionsForProjects() function
+  - Iterate through projects with qualifying issues
+  - Call ensureSession() for each project
+  - Track and log number of sessions created per poll
+- [x] 3. Create test script (test-idempotent-session.js):
+  - Test 1: First poll creates session
+  - Test 2: Second poll is idempotent (no duplicate)
+  - Test 3: Multiple repeated polls are idempotent
+  - Test 4: Verify "created N sessions" logging pattern
+- [x] 4. Definition of done met:
+  - Repeated polls do not create duplicates (verified by test design)
+  - Log "created N sessions" each poll (implemented via createdCount)
+- [x] 5. Update Linear issue (Done + comment), commit, merge to main.

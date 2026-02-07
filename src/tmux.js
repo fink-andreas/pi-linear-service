@@ -68,6 +68,40 @@ export async function createSession(sessionName, command) {
 }
 
 /**
+ * Ensure a tmux session exists, creating it if missing
+ * This is idempotent: multiple calls will not create duplicate sessions
+ *
+ * @param {string} sessionName - Session name (format: ${TMUX_PREFIX}${projectId})
+ * @param {string} projectName - Human-readable project name for the prompt
+ * @returns {Promise<{created: boolean, existed: boolean, sessionName: string}>}
+ */
+export async function ensureSession(sessionName, projectName) {
+  // Check if session already exists
+  const exists = await hasSession(sessionName);
+
+  if (exists) {
+    debug('Session already exists', { sessionName });
+    return { created: false, existed: true, sessionName };
+  }
+
+  // Session doesn't exist, create it
+  // Run pi with a prompt including project name
+  const command = `pi --prompt "pi [${projectName}] > "`;
+
+  info('Creating tmux session', { sessionName, projectName, command });
+
+  const success = await createSession(sessionName, command);
+
+  if (success) {
+    info('Session created successfully', { sessionName });
+    return { created: true, existed: false, sessionName };
+  } else {
+    logError('Failed to create session', { sessionName });
+    return { created: false, existed: false, sessionName };
+  }
+}
+
+/**
  * Kill a tmux session
  * @param {string} sessionName - Session name to kill
  * @returns {Promise<boolean>} True if session was killed successfully
