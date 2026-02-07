@@ -1,0 +1,32 @@
+[Unit]
+Description=pi-linear-service - Node.js daemon for Linear + tmux + pi integration
+Documentation=https://github.com/fink-andreas/pi-linear-service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5s
+WorkingDirectory=/home/afi/dvl/pi-linear-service
+EnvironmentFile=/home/afi/dvl/pi-linear-service/.env
+# IMPORTANT: Update this path to your Node.js installation
+# Run: which node
+# Examples:
+#   - /home/user/.nvm/versions/node/v24.11.1/bin/node (nvm)
+#   - /usr/bin/node (system-wide)
+#   - /usr/local/bin/node (Homebrew/Linuxbrew)
+ExecStart=/home/afi/.nvm/versions/node/v24.11.1/bin/node index.js
+
+# Alternative: Use /usr/bin/env if node is in your PATH (may not work with systemd)
+# ExecStart=/usr/bin/env node index.js
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-linear
+
+[Install]
+WantedBy=default.target

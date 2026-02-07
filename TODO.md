@@ -1,44 +1,37 @@
-# TODO - INN-170: Structured Logging
+# TODO - INN-172: Create pi-linear.service unit file
 
 ## Implementation Steps
 
-- [x] 1. Add poll start tracking in `performPoll()` function:
-    - Add `const pollStartTimestamp = Date.now()` at the beginning
-    - Add info log: "Poll started" with poll ID or timestamp
-    - Initialize metrics object: `{ issueCount: 0, projectCount: 0, sessionsCreated: 0, unhealthyDetected: 0, sessionsKilled: 0, errors: [] }`
+- [x] 1. Create pi-linear.service systemd user unit file:
+    - Add [Unit] section with Description
+    - Add [Service] section with:
+      - Type=simple
+      - Restart=on-failure
+      - RestartSec=5s (backoff delay)
+      - WorkingDirectory=/path/to/pi-linear-service (placeholder)
+      - EnvironmentFile=/path/to/.env (placeholder)
+      - ExecStart=/usr/bin/env node index.js
+    - Add [Install] section with WantedBy=default.target
 
-- [x] 2. Update Linear API fetch section to collect metrics:
-    - Capture `issueCount` from fetchAssignedIssues result
-    - Capture `projectCount` from byProject.size
-    - Store in metrics object
-    - Catch errors and add to errors array
+- [x] 2. Add installation script or documentation:
+    - Document how to create ~/.config/systemd/user/ directory
+    - Document how to copy unit file to correct location
+    - Document how to update WorkingDirectory and EnvironmentFile paths
+    - Document systemctl commands: daemon-reload, start, enable, status
 
-- [x] 3. Update session creation section to collect metrics:
-    - Capture `sessionsCreated` from createSessionsForProjects
-    - Store in metrics object
-    - Catch errors and add to errors array
+- [x] 3. Test the unit file:
+    - Create a test .env file in the project directory
+    - Copy unit file to ~/.config/systemd/user/
+    - Run systemctl --user daemon-reload
+    - Run systemctl --user start pi-linear.service
+    - Run systemctl --user status pi-linear.service
+    - Run journalctl --user -u pi-linear.service -n 20
+    - Run systemctl --user stop pi-linear.service
 
-- [x] 4. Update health check section to collect metrics:
-    - Capture all metrics from checkAndKillUnhealthySessions result (unhealthyDetected, sessionsKilled, sessionsChecked)
-    - Store in metrics object
-    - Catch errors and add to errors array
+- [x] 4. Update README.md with systemd installation section:
+    - Add "Systemd User Unit Installation" section
+    - Include step-by-step installation instructions
+    - Include systemctl commands for starting/stopping/enabling
+    - Include troubleshooting tips
 
-- [x] 5. Add poll end tracking and summary logging:
-    - Add `const pollEndTimestamp = Date.now()` at the end
-    - Calculate `const pollDurationMs = pollEndTimestamp - pollStartTimestamp`
-    - Log "Poll completed" with all consolidated metrics:
-      - pollDurationMs
-      - issueCount
-      - projectCount
-      - sessionsCreated
-      - unhealthyDetected
-      - sessionsKilled
-      - errorCount
-
-- [x] 6. Manual test:
-    - Run `node index.js` with valid .env
-    - Verify poll start/end logs appear
-    - Verify all metrics are present in poll summary
-    - Check logs are readable JSON format
-
-- [>] 7. Update Linear issue (Done + comment), commit, merge to main
+- [>] 5. Update Linear issue (Done + comment), commit, merge to main

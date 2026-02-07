@@ -265,49 +265,143 @@ LOG_LEVEL=info
 
 ## Running as Systemd Service
 
-To run the service automatically on boot:
+To run the service automatically on boot and restart on failure:
 
-### 1. Create systemd user unit file
+### 1. Copy the systemd user unit file
+
+The project includes a `pi-linear.service` file in the root directory.
 
 ```bash
+# Create the systemd user directory
 mkdir -p ~/.config/systemd/user/
+
+# Copy the unit file
+cp pi-linear.service ~/.config/systemd/user/
+```
+
+### 2. Edit the unit file
+
+Update the paths to match your installation:
+
+```bash
 nano ~/.config/systemd/user/pi-linear.service
 ```
 
-### 2. Create unit file content
+**Important:** You MUST edit these two paths:
 
+1. **WorkingDirectory** - Path to your pi-linear-service directory:
+   ```ini
+   WorkingDirectory=/home/user/pi-linear-service
+   ```
+
+2. **ExecStart** - Full path to your Node.js binary:
+   ```ini
+   ExecStart=/home/user/.nvm/versions/node/v24.11.1/bin/node index.js
+   ```
+
+   To find your Node.js path, run:
+   ```bash
+   which node
+   ```
+
+3. **EnvironmentFile** (optional) - Path to your .env file (same as WorkingDirectory):
+   ```ini
+   EnvironmentFile=/home/user/pi-linear-service/.env
+   ```
+
+**Note:** You can use systemd specifiers like `%h` (home directory) for portability:
 ```ini
-[Unit]
-Description=pi-linear-service - Linear + tmux + pi integration
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/node %h/pi-linear-service/index.js
 WorkingDirectory=%h/pi-linear-service
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=default.target
+EnvironmentFile=%h/pi-linear-service/.env
 ```
+
+**Common Node.js installation paths:**
+- **nvm**: `/home/user/.nvm/versions/node/v24.11.1/bin/node`
+- **system**: `/usr/bin/node`
+- **Homebrew**: `/usr/local/bin/node`
+- **snap**: `/snap/node/current/bin/node`
 
 ### 3. Reload systemd and enable service
 
 ```bash
+# Reload systemd daemon to pick up new unit file
 systemctl --user daemon-reload
-systemctl --user enable pi-linear.service
+
+# Start the service
 systemctl --user start pi-linear.service
+
+# Enable the service to start on boot
+systemctl --user enable pi-linear.service
 ```
 
 ### 4. Check status and logs
 
 ```bash
-# Check status
+# Check service status
 systemctl --user status pi-linear.service
 
-# View logs
+# View recent logs
+journalctl --user -u pi-linear.service -n 50
+
+# Follow logs in real-time
 journalctl --user -u pi-linear.service -f
+
+# View logs since last boot
+journalctl --user -u pi-linear.service -b
+```
+
+### 5. Managing the service
+
+```bash
+# Stop the service
+systemctl --user stop pi-linear.service
+
+# Restart the service
+systemctl --user restart pi-linear.service
+
+# Disable auto-start on boot
+systemctl --user disable pi-linear.service
+
+# Check if service is enabled
+systemctl --user is-enabled pi-linear.service
+```
+
+### Unit File Features
+
+The `pi-linear.service` unit file includes:
+
+- **Restart on failure**: Automatically restarts if the service crashes
+- **Restart backoff**: Waits 5 seconds between restart attempts
+- **Environment file**: Loads configuration from `.env` (no secrets in unit file)
+- **Security**: `NoNewPrivileges=true` and `PrivateTmp=true` for hardening
+- **Logging**: Logs to systemd journal with `pi-linear` identifier
+- **Standard paths**: Installs to `~/.config/systemd/user/` for user services
+
+### Troubleshooting
+
+**Service fails to start:**
+```bash
+# Check detailed error
+journalctl --user -u pi-linear.service -n 100 --no-pager
+
+# Verify paths in unit file
+systemctl --user cat pi-linear.service
+```
+
+**Service not starting on boot:**
+```bash
+# Check if systemd user session is lingering
+loginctl show-user $USER | grep Linger
+
+# Enable lingering (if not enabled)
+loginctl enable-linger $USER
+```
+
+**Environment variables not loaded:**
+```bash
+# Verify .env file exists and is readable
+cat ~/.config/systemd/user/pi-linear.service | grep EnvironmentFile
+ls -la /path/to/.env
 ```
 
 ## Testing
