@@ -74,11 +74,12 @@ export async function createSession(sessionName, command) {
  * @param {Object} values - Object with values to replace placeholders
  * @returns {string} Template with placeholders replaced
  */
-function replacePlaceholders(template, values) {
+export function replacePlaceholders(template, values) {
   let result = template;
   for (const [key, value] of Object.entries(values)) {
-    const placeholder = `\${${key}}`;
-    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value);
+    // Escape special regex characters in the placeholder pattern
+    const placeholderPattern = new RegExp(`\\$\\{${key}\\}`, 'g');
+    result = result.replace(placeholderPattern, String(value));
   }
   return result;
 }
