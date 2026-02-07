@@ -68,14 +68,32 @@ export async function createSession(sessionName, command) {
 }
 
 /**
+ * Replace placeholders in template string with actual values
+ *
+ * @param {string} template - Template string with ${placeholder} format
+ * @param {Object} values - Object with values to replace placeholders
+ * @returns {string} Template with placeholders replaced
+ */
+function replacePlaceholders(template, values) {
+  let result = template;
+  for (const [key, value] of Object.entries(values)) {
+    const placeholder = `\${${key}}`;
+    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value);
+  }
+  return result;
+}
+
+/**
  * Ensure a tmux session exists, creating it if missing
  * This is idempotent: multiple calls will not create duplicate sessions
  *
  * @param {string} sessionName - Session name (format: ${TMUX_PREFIX}${projectId})
- * @param {string} projectName - Human-readable project name for the prompt
+ * @param {string} projectName - Human-readable project name
+ * @param {Object} projectData - Project data with issueCount, issues
+ * @param {string} commandTemplate - Template for session command with placeholders
  * @returns {Promise<{created: boolean, existed: boolean, sessionName: string}>}
  */
-export async function ensureSession(sessionName, projectName) {
+export async function ensureSession(sessionName, projectName, projectData, commandTemplate) {
   // Check if session already exists
   const exists = await hasSession(sessionName);
 
@@ -84,9 +102,15 @@ export async function ensureSession(sessionName, projectName) {
     return { created: false, existed: true, sessionName };
   }
 
-  // Session doesn't exist, create it
-  // Run pi with a prompt including project name
-  const command = `pi --prompt "pi [${projectName}] > "`;
+  // Build command from template
+  const placeholders = {
+    projectName,
+    sessionId: sessionName,
+    projectId: extractProjectId(sessionName, 'pi_project_'),
+    issueCount: projectData?.issueCount || 0,
+  };
+
+  const command = replacePlaceholders(commandTemplate, placeholders);
 
   info('Creating tmux session', { sessionName, projectName, command });
 

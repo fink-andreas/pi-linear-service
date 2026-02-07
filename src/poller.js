@@ -91,15 +91,17 @@ async function performPoll(config) {
 async function createSessionsForProjects(byProject, config) {
   let createdCount = 0;
 
-  for (const [projectId, { projectName }] of byProject) {
+  for (const [projectId, projectData] of byProject) {
+    const { projectName } = projectData;
     const sessionName = `${config.tmuxPrefix}${projectId}`;
-    const result = await ensureSession(sessionName, projectName);
+    const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate);
 
     if (result.created) {
       createdCount++;
       debug('Session created this poll', {
         sessionName,
         projectName,
+        commandTemplate: config.sessionCommandTemplate,
       });
     } else if (result.existed) {
       debug('Session already exists', {

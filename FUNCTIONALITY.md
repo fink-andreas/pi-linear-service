@@ -215,14 +215,21 @@ A session is considered "owned" by this service if:
 The service ensures sessions are created only once:
 
 ```javascript
-async function ensureSession(sessionName, projectName) {
+async function ensureSession(sessionName, projectName, projectData, commandTemplate) {
   // Check if session exists
   if (await hasSession(sessionName)) {
     return { created: false, existed: true, sessionName };
   }
 
-  // Create session with pi prompt
-  const command = `pi --prompt "pi [${projectName}] > "`;
+  // Build command from template with placeholders
+  const placeholders = {
+    projectName,
+    sessionId: sessionName,
+    projectId: extractProjectId(sessionName, 'pi_project_'),
+    issueCount: projectData?.issueCount || 0,
+  };
+
+  const command = replacePlaceholders(commandTemplate, placeholders);
   const success = await createSession(sessionName, command);
 
   if (success) {
@@ -235,17 +242,55 @@ async function ensureSession(sessionName, projectName) {
 
 **Result**: Repeated polls do not create duplicate sessions.
 
+### Session Command Template
+
+The `SESSION_COMMAND_TEMPLATE` environment variable allows customization of the pi command with placeholders:
+
+**Available placeholders:**
+- `${projectName}` - Name of the project from Linear
+- `${projectId}` - ID of the project (e.g., ABC-123)
+- `${sessionId}` - Full session name (e.g., pi_project_ABC-123)
+- `${issueCount}` - Number of qualifying issues in the project
+
+**Default template:**
+```
+pi -p "You are working on project: ${projectName} list issues and choose one to work on, if an issue is already in progress - continue"
+```
+
+**Example usage:**
+```bash
+SESSION_COMMAND_TEMPLATE=pi -p "Work on project ${projectName} with ${issueCount} issues available"
+```
+
+### Session Creation Workflow
+
+The session creation follows a batch processing workflow:
+
+1. **Poll finds issues** - Linear API returns issues assigned to you
+2. **Group by project** - Issues are grouped by project ID
+3. **Create session** - One session per project with pi in non-interactive mode
+4. **Pi processes** - pi runs with `-p` flag, processes the prompt, and exits
+5. **Session considered finished** - After pi exits, health check detects session as unhealthy
+6. **Next poll recreates** - If project still has qualifying issues, new session is created
+
+**Note**: Each session is meant for one-time processing. After pi exits, the session is done. If more work exists, the next poll creates a fresh session.
+
 ### Session Creation per Project
 
 For each project with qualifying issues:
 
 ```javascript
-for (const [projectId, { projectName }] of byProject) {
+for (const [projectId, projectData] of byProject) {
+  const { projectName, issueCount } = projectData;
   const sessionName = `${config.tmuxPrefix}${projectId}`;
-  const result = await ensureSession(sessionName, projectName);
+  const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate);
 
   if (result.created) {
-    debug('Session created this poll', { sessionName, projectName });
+    debug('Session created this poll', {
+      sessionName,
+      projectName,
+      commandTemplate: config.sessionCommandTemplate,
+    });
   } else if (result.existed) {
     debug('Session already exists', { sessionName, projectName });
   }
@@ -404,6 +449,7 @@ LINEAR_OPEN_STATES=Todo,In Progress         # States considered "open" (default:
 
 # tmux Session Management
 TMUX_PREFIX=pi_project_                     # Session prefix (default: pi_project_)
+SESSION_COMMAND_TEMPLATE=pi -p "You are working on project: ${projectName} list issues and choose one to work on, if an issue is already in progress - continue"
 
 # Health & Recovery
 SESSION_HEALTH_MODE=basic                    # Health check mode (default: basic)

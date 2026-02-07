@@ -69,6 +69,8 @@ export function printConfigSummary(config) {
   console.log(`    SESSION_HEALTH_MODE: ${config.sessionHealthMode}`);
   console.log(`    SESSION_KILL_ON_UNHEALTHY: ${config.sessionKillOnUnhealthy}`);
   console.log(`    SESSION_RESTART_COOLDOWN_SEC: ${config.sessionRestartCooldownSec}s`);
+  console.log('  Session Command:');
+  console.log(`    SESSION_COMMAND_TEMPLATE: ${config.sessionCommandTemplate}`);
   console.log('  Logging:');
   console.log(`    LOG_LEVEL: ${config.logLevel}`);
   console.log('');
@@ -148,6 +150,10 @@ export function validateEnv() {
     sessionHealthMode,
     sessionKillOnUnhealthy: parseEnvBool('SESSION_KILL_ON_UNHEALTHY', false),
     sessionRestartCooldownSec,
+
+    // Optional - Session command
+    sessionCommandTemplate: process.env.SESSION_COMMAND_TEMPLATE ||
+      'pi -p "You are working on project: ${projectName} list issues and choose one to work on, if an issue is already in progress - continue"',
 
     // Optional - Logging
     logLevel: process.env.LOG_LEVEL || 'info',
