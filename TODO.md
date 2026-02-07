@@ -1,43 +1,38 @@
-# TODO - INN-171: Debug logging controls (optional)
+# TODO - INN-178: Add simple metrics in logs
 
-## Definition of Done
-- Support LOG_LEVEL to reduce noise ✓
-- Debug logs for "issues with no project" are suppressible ✓
+## Implementation Steps
 
-## Verification Steps
+- [x] 1. Create src/metrics.js module:
+    - Add measureTime() function for synchronous operations
+    - Add measureTimeAsync() function for async operations
+    - Return object with { result/duration/success } or { error/duration/success }
+    - Export both functions
 
-- [x] 1. Verify LOG_LEVEL support in logger.js:
-    - LOG_LEVEL environment variable is read from process.env
-    - Default level is 'info'
-    - Valid levels: debug, info, warn, error
-    - shouldLog() function filters based on level
-    - setLogLevel() function to change level dynamically
+- [x] 2. Add poll duration metrics to src/poller.js:
+    - Import measureTimeAsync from src/metrics.js
+    - Wrap poll tick execution with measureTimeAsync
+    - Log poll duration in pollCompleted message
+    - Format: {"message":"Poll completed","durationMs":1234,"issuesCount":5}
 
-- [x] 2. Verify LOG_LEVEL validation in config.js:
-    - Valid log levels are defined: ['error', 'warn', 'info', 'debug']
-    - LOG_LEVEL is validated on startup
-    - Invalid levels throw error with message
-    - Default is 'info' if not set
+- [x] 3. Add API latency metrics to src/linear.js:
+    - Import measureTimeAsync from src/metrics.js
+    - Wrap GraphQL fetch in measureTimeAsync
+    - Log API latency on success and error
+    - Format: {"message":"Fetched assigned issues","durationMs":456,"count":10}
+    - Format: {"message":"Failed to fetch issues","durationMs":789,"error":"..."}
 
-- [x] 3. Verify debug log for "issues with no project":
-    - src/linear.js line 181: debug('Ignoring issue with no project', ...)
-    - Logs issueId, title, and state
-    - Only shown when LOG_LEVEL=debug
+- [x] 4. Add tmux command latency metrics to src/tmux.js:
+    - Import measureTime and measureTimeAsync from src/metrics.js
+    - Wrap listSessions() with measureTimeAsync
+    - Wrap newSession() with measureTimeAsync
+    - Wrap killSession() with measureTimeAsync
+    - Wrap getSessionInfo() with measureTimeAsync
+    - Add durationMs to relevant log entries
 
-- [x] 4. Verify LOG_LEVEL documentation in README:
-    - Logging section includes LOG_LEVEL
-    - Default value: info
-    - Valid levels: error | warn | info | debug
-    - Configuration summary shows current LOG_LEVEL
+- [x] 5. Test metrics appear in logs:
+    - Run service with LOG_LEVEL=info
+    - Verify poll duration appears in logs
+    - Verify API latency appears in logs
+    - Verify tmux command latency appears in logs
 
-- [x] 5. Verify suppressibility:
-    - When LOG_LEVEL=info (default), debug logs are hidden
-    - When LOG_LEVEL=debug, all logs including "issues with no project" are shown
-    - This reduces noise for normal operation while allowing debug when needed
-
-- [x] 6. Test LOG_LEVEL behavior:
-    - Default (info) doesn't show debug logs
-    - LOG_LEVEL=debug shows all logs including "Ignoring issue with no project"
-    - Invalid LOG_LEVEL throws clear error
-
-- [>] 7. Update Linear issue (Done + comment), commit, merge to main
+- [>] 6. Update Linear issue (Done + comment), commit, merge to main

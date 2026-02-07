@@ -1,63 +1,117 @@
-# INN-175: Acceptance Criteria Walkthrough - Implementation Plan
+# Plan - INN-178: Add simple metrics in logs
 
-## Current State
+## Overview
+Add simple performance metrics to logs for:
+- Poll duration: Time taken for each polling cycle
+- API latency: Time taken for Linear GraphQL API calls
+- tmux command latency: Time taken for tmux commands
 
-README.md exists with installation, configuration, and troubleshooting sections. No explicit acceptance criteria verification section exists.
+## Files Involved
 
-## Requirements
+### src/poller.js
+- Poll loop orchestration
+- Calls Linear API and tmux operations
+- Needs: Poll duration metrics
 
-Create a checklist-style section mapping each acceptance criterion to a quick verification step. All criteria must be explicitly covered and reproducible.
+### src/linear.js
+- GraphQL API queries
+- Needs: API latency metrics
 
-## Acceptance Criteria from PRD
+### src/tmux.js
+- Tmux command execution
+- Needs: tmux command latency metrics
 
-### Local Run (`node index.js`) with valid `.env`
+### src/metrics.js (NEW)
+- Create new module for metrics collection
+- Helper functions for timing operations
+- Format metrics for logging
 
-1. Immediate poll occurs on startup
-2. One tmux session per qualifying project created, no duplicates on subsequent polls
-3. Exited pane/process ⇒ unhealthy immediately
-4. If `SESSION_KILL_ON_UNHEALTHY=true`, unhealthy sessions owned by this service are killed and recreated on later polls if still required, respecting cooldown
+## Current Architecture
 
-### User Unit Deployment
+### Poll Loop Flow (src/poller.js)
+1. Start poll tick
+2. Check if previous poll still running (skip if yes)
+3. Execute Linear GraphQL query
+4. Group issues by project
+5. For each project:
+   - Check/create tmux session
+   - Run health checks
+6. End poll tick
 
-1. `~/.config/systemd/user/pi-linear.service` works with `systemctl --user`
-2. Uses `EnvironmentFile=`
-3. Restarts on failure
-4. README shows how to view logs with `journalctl --user -u pi-linear.service`
-5. README shows how to ensure start-on-boot for user
+### Linear API Calls (src/linear.js)
+- fetchAssignedIssues(): Gets issues from Linear
+- Uses HTTP POST to GraphQL endpoint
+
+### Tmux Commands (src/tmux.js)
+- listSessions(): Get list of tmux sessions
+- newSession(): Create new tmux session
+- killSession(): Kill a tmux session
+- getSessionInfo(): Get session information
+- All use child_process.exec() or execSync()
 
 ## Implementation Plan
 
-### 1. Create Acceptance Criteria Verification section
+### 1. Create src/metrics.js Module
+```javascript
+// Helper for timing operations
+export function measureTime(fn) {
+  const start = Date.now();
+  try {
+    const result = fn();
+    const duration = Date.now() - start;
+    return { result, duration, success: true };
+  } catch (error) {
+    const duration = Date.now() - start;
+    return { error, duration, success: false };
+  }
+}
 
-Add a new section to README.md after "Troubleshooting" with:
-- Overview of the verification process
-- Two main sections: Local Run Verification and User Unit Deployment Verification
-- Each criterion mapped to concrete verification steps
-- Commands to run
-- Expected output to look for
+// Helper for measuring async operations
+export async function measureTimeAsync(fn) {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    const duration = Date.now() - start;
+    return { result, duration, success: true };
+  } catch (error) {
+    const duration = Date.now() - start;
+    return { error, duration, success: false };
+  }
+}
+```
 
-### 2. Verification Structure
+### 2. Add Poll Duration Metrics (src/poller.js)
+- Wrap entire poll cycle with timing
+- Log poll duration at end of cycle
+- Include in pollStarted/pollCompleted logs
 
-**Local Run Verification:**
-- Verify environment setup
-- Verify immediate poll on startup
-- Verify session creation (idempotence)
-- Verify health detection
-- Verify kill/restart with cooldown
+### 3. Add API Latency Metrics (src/linear.js)
+- Wrap GraphQL query execution with timing
+- Log API latency for each fetch
+- Include error handling with duration
 
-**User Unit Deployment Verification:**
-- Verify unit file installation
-- Verify systemd commands work
-- Verify EnvironmentFile usage
-- Verify restart on failure
-- Verify log viewing
-- Verify start-on-boot configuration
+### 4. Add tmux Command Latency Metrics (src/tmux.js)
+- Wrap each tmux command execution with timing
+- Log duration for listSessions, newSession, killSession, getSessionInfo
+- Include in debug logs for detailed visibility
 
-## Definition of Done
+### 5. Update Logging
+- Add metrics to existing log entries where relevant
+- Format: duration in milliseconds (ms)
+- Example: {"level":"INFO","message":"Poll completed","durationMs":1234,"issuesCount":5}
 
-- [ ] Acceptance criteria section added to README.md
-- [ ] All local run criteria covered with verification steps
-- [ ] All user unit deployment criteria covered with verification steps
-- [ ] Each criterion has clear commands to run
-- [ ] Each criterion has expected output indicators
-- [ ] All verification steps are reproducible
+## High-Level TODO
+
+- [ ] 1. Create src/metrics.js module with timing helpers
+- [ ] 2. Add poll duration metrics to src/poller.js
+- [ ] 3. Add API latency metrics to src/linear.js
+- [ ] 4. Add tmux command latency metrics to src/tmux.js
+- [ ] 5. Test metrics appear in logs
+- [ ] 6. Verify metrics don't impact performance
+
+## Non-Goals
+
+- Complex metrics aggregation or storage
+- Metrics visualization dashboards
+- Performance analysis beyond simple timing
+- Historical metrics comparison

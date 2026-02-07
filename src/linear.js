@@ -3,6 +3,7 @@
  */
 
 import { error as logError, warn, info, debug } from './logger.js';
+import { measureTimeAsync } from './metrics.js';
 import pkg from '../package.json' with { type: 'json' };
 
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
@@ -43,19 +44,22 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
       queryFirstLine: query?.split('\n')?.[0],
     });
 
-    const response = await fetch(LINEAR_GRAPHQL_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: apiKey,
-        'Content-Type': 'application/json',
-        'User-Agent': USER_AGENT,
-      },
-      body: JSON.stringify({
-        query,
-        variables,
-        ...(operationName ? { operationName } : {}),
-      }),
-      signal: controller.signal,
+    // Measure API latency
+    const { result: response, duration: fetchDuration } = await measureTimeAsync(async () => {
+      return await fetch(LINEAR_GRAPHQL_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+        body: JSON.stringify({
+          query,
+          variables,
+          ...(operationName ? { operationName } : {}),
+        }),
+        signal: controller.signal,
+      });
     });
 
     if (!response.ok) {
@@ -65,6 +69,7 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
         status: response.status,
         statusText: response.statusText,
         responseBodySnippet: truncate(errorText),
+        durationMs: fetchDuration,
       });
       throw new Error(`Linear API HTTP error: ${response.status} ${response.statusText}`);
     }
@@ -84,6 +89,7 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
     if (result?.errors?.length) {
       logError('GraphQL query returned errors', {
         operationName,
+        durationMs: fetchDuration,
         errors: result.errors.map((e) => ({
           message: e.message,
           path: e.path,
@@ -96,7 +102,10 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
       throw new Error(`Linear GraphQL error(s): ${messages}`);
     }
 
-    debug('Linear GraphQL query successful', { operationName });
+    debug('Linear GraphQL query successful', {
+      operationName,
+      durationMs: fetchDuration,
+    });
     return result.data;
   } catch (error) {
     if (error?.name === 'AbortError') {

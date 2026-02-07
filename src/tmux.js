@@ -4,6 +4,7 @@
 
 import { spawn } from 'child_process';
 import { error as logError, debug, info } from './logger.js';
+import { measureTimeAsync } from './metrics.js';
 
 /**
  * Execute a tmux command
@@ -11,7 +12,8 @@ import { error as logError, debug, info } from './logger.js';
  * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
  */
 export function execTmux(args) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    const startTime = Date.now();
     debug('Executing tmux command', { args: args.join(' ') });
 
     const child = spawn('tmux', args);
@@ -28,18 +30,27 @@ export function execTmux(args) {
     });
 
     child.on('close', (code) => {
+      const durationMs = Date.now() - startTime;
       if (code !== 0) {
         logError('tmux command failed', {
           args: args.join(' '),
           exitCode: code,
           stderr: stderr.trim(),
+          durationMs,
+        });
+      } else {
+        debug('tmux command completed', {
+          args: args.join(' '),
+          exitCode: code,
+          durationMs,
         });
       }
       resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code });
     });
 
     child.on('error', (err) => {
-      logError('Failed to spawn tmux process', { error: err.message });
+      const durationMs = Date.now() - startTime;
+      logError('Failed to spawn tmux process', { error: err.message, durationMs });
       reject(err);
     });
   });
