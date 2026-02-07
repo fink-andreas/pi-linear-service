@@ -1,4 +1,4 @@
-Build a Node.js daemon that polls the Linear GraphQL API on an interval and manages **per-project `tmux` sessions** running a `pi` command for projects that currently have assigned issues in configurable “open” states. Deploy it as a **systemd user unit** on Ubuntu (under `~/.config/systemd/user/`), and include a **basic session health check** with an optional **kill/restart** mechanism limited to sessions created by this service.
+A Node.js daemon that polls the Linear GraphQL API on an interval and manages **per-project `tmux` sessions** running a `pi` command for projects that currently have assigned issues in configurable “open” states. Deploy it as a **systemd user unit** on Ubuntu (under `~/.config/systemd/user/`), and include a **basic session health check** with an optional **kill/restart** mechanism limited to sessions created by this service.
 
 ### Goal
 
@@ -24,7 +24,7 @@ Build a Node.js daemon that polls the Linear GraphQL API on an interval and mana
 
 2. **systemd user unit**
 
-   * File: `~/.config/systemd/user/linear-pi.service`
+   * File: `~/.config/systemd/user/pi-linear.service` 
    * Managed via: `systemctl --user {daemon-reload,enable,start,status}`.
    * Uses `EnvironmentFile=` (preferred) or equivalent; do not embed secrets in the unit.
    * `Restart=on-failure` (or `always`) with sensible backoff.
@@ -110,60 +110,10 @@ For each project with ≥1 qualifying issue:
 
 * User unit deployment:
 
-  * `~/.config/systemd/user/linear-pi.service` works with `systemctl --user`.
+  * `~/.config/systemd/user/pi-linear.service` works with `systemctl --user`.
   * Uses `EnvironmentFile=`.
   * Restarts on failure.
-  * README shows how to view logs with `journalctl --user -u linear-pi.service` and how to ensure start-on-boot for the user.
-
-### Milestones & Todos (work breakdown)
-
-#### Milestone 0 — Repo scaffold & baseline run
-
-* ISSUE-001: Initialize Node project (package.json + entrypoint)
-* ISSUE-002: Add dependencies and basic folder/module structure
-
-#### Milestone 1 — Configuration & validation
-
-* ISSUE-003: Implement config loader (defaults, parsing, required env validation, masked config summary)
-* ISSUE-004: Add `.env.example` documenting all required/optional config keys
-
-#### Milestone 2 — Linear GraphQL integration
-
-* ISSUE-005: Implement Linear GraphQL client (HTTP + GraphQL error handling)
-* ISSUE-006: Implement query for “assigned issues in open states” with limit + truncation warning
-* ISSUE-007: Group qualifying issues by project (ignore no-project issues with logs)
-
-#### Milestone 3 — Polling loop & resilience
-
-* ISSUE-008: Implement serialized polling loop (immediate run + interval, no overlaps)
-* ISSUE-009: Ensure transient failures don’t crash daemon (catch/log/continue)
-
-#### Milestone 4 — tmux session orchestration (idempotent)
-
-* ISSUE-010: Implement tmux command runner wrapper
-* ISSUE-011: Implement session naming + strict “owned session” detection (TMUX_PREFIX + pattern)
-* ISSUE-012: Implement idempotent session creation (has-session → create detached session running `pi`)
-
-#### Milestone 5 — Health check + optional recovery (cooldown gated)
-
-* ISSUE-013: Implement `SESSION_HEALTH_MODE=none|basic` and basic health semantics (exited pane/no live panes ⇒ unhealthy immediately)
-* ISSUE-014: Implement kill/restart gating (owned-only, config-gated, cooldown map, kill-session)
-* ISSUE-015: Validate recovery flow (killed sessions recreated on later polls if still needed)
-
-#### Milestone 6 — Logging & operability
-
-* ISSUE-016: Add structured logs for startup + per-poll summary + decisions
-* ISSUE-017 (optional): Add log level controls (e.g., `LOG_LEVEL`) to reduce noise
-
-#### Milestone 7 — systemd user unit deliverable
-
-* ISSUE-018: Provide `~/.config/systemd/user/linear-pi.service` unit using `EnvironmentFile=` and restart policy
-* ISSUE-019: Document start-on-boot for user (`loginctl enable-linger <user>`) + journald log viewing
-
-#### Milestone 8 — Documentation & acceptance checklist
-
-* ISSUE-020: Write `README.md` (install, config, local run, systemd deployment)
-* ISSUE-021: Add explicit acceptance checklist mapping to verification steps
+  * README shows how to view logs with `journalctl --user -u pi-linear.service` and how to ensure start-on-boot for the user.
 
 ### Summary of what was improved for clarity (include verbatim in your output)
 
