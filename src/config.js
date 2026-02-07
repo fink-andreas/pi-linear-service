@@ -44,6 +44,37 @@ function parseEnvList(key, defaultValue) {
 const REQUIRED_VARS = ['LINEAR_API_KEY', 'ASSIGNEE_ID'];
 
 /**
+ * Mask sensitive values for logging
+ */
+function maskSecret(value) {
+  if (!value) return value;
+  if (value.length <= 8) return '***';
+  return value.substring(0, 4) + '...' + value.substring(value.length - 4);
+}
+
+/**
+ * Print configuration summary to console
+ */
+export function printConfigSummary(config) {
+  console.log('\nConfiguration Summary:');
+  console.log('  Required:');
+  console.log(`    LINEAR_API_KEY: ${maskSecret(config.linearApiKey)}`);
+  console.log(`    ASSIGNEE_ID: ${config.assigneeId}`);
+  console.log('  Polling:');
+  console.log(`    POLL_INTERVAL_SEC: ${config.pollIntervalSec}s`);
+  console.log(`    TMUX_PREFIX: ${config.tmuxPrefix}`);
+  console.log(`    LINEAR_OPEN_STATES: ${config.linearOpenStates.join(', ')}`);
+  console.log(`    LINEAR_PAGE_LIMIT: ${config.linearPageLimit}`);
+  console.log('  Health & Recovery:');
+  console.log(`    SESSION_HEALTH_MODE: ${config.sessionHealthMode}`);
+  console.log(`    SESSION_KILL_ON_UNHEALTHY: ${config.sessionKillOnUnhealthy}`);
+  console.log(`    SESSION_RESTART_COOLDOWN_SEC: ${config.sessionRestartCooldownSec}s`);
+  console.log('  Logging:');
+  console.log(`    LOG_LEVEL: ${config.logLevel}`);
+  console.log('');
+}
+
+/**
  * Validate and parse environment variables
  * @throws {Error} If required environment variables are missing or invalid
  * @returns {Object} Configuration object with all settings
@@ -90,6 +121,16 @@ export function validateEnv() {
   const sessionRestartCooldownSec = parseEnvInt('SESSION_RESTART_COOLDOWN_SEC', 60);
   if (sessionRestartCooldownSec < 0) {
     throw new Error('SESSION_RESTART_COOLDOWN_SEC must be a non-negative number');
+  }
+
+  // Validate log level
+  const validLogLevels = ['error', 'warn', 'info', 'debug'];
+  const logLevel = process.env.LOG_LEVEL || 'info';
+  if (!validLogLevels.includes(logLevel)) {
+    throw new Error(
+      `Invalid LOG_LEVEL: "${logLevel}". ` +
+      `Valid options: ${validLogLevels.join(', ')}`
+    );
   }
 
   return {
