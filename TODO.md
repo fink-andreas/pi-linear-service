@@ -1,207 +1,44 @@
-# TODO
+# TODO - INN-170: Structured Logging
 
-## INN-159 Implement Linear GraphQL client (Done)
+## Implementation Steps
 
-- [x] 1. Inspect current logging + linear client usage; decide where to run the smoke-test query (startup in poller vs index).
-  - Decision: run once at poll-loop startup (`src/poller.js`) after `setLogLevel()`, and **catch+log** so the daemon can keep running.
-- [x] 2. Update `src/linear.js`:
-  - add `User-Agent` header
-  - add optional request timeout (AbortController)
-  - normalize HTTP + GraphQL error handling into a single error shape
-  - add `runSmokeQuery(apiKey)` (e.g. `viewer { id name }`)
-- [x] 3. Update `src/poller.js` to call `runSmokeQuery()` once on startup and **catch + log** errors (do not throw).
-- [x] 4. Manual test:
-  - `LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js` logs a clean failure and exits/continues as intended
-  - `node index.js` with real `.env` key logs success
-- [x] 5. Ensure repo is clean and implementation matches INN-159 definition of done; update Linear issue with summary + files changed.
+- [x] 1. Add poll start tracking in `performPoll()` function:
+    - Add `const pollStartTimestamp = Date.now()` at the beginning
+    - Add info log: "Poll started" with poll ID or timestamp
+    - Initialize metrics object: `{ issueCount: 0, projectCount: 0, sessionsCreated: 0, unhealthyDetected: 0, sessionsKilled: 0, errors: [] }`
 
----
+- [x] 2. Update Linear API fetch section to collect metrics:
+    - Capture `issueCount` from fetchAssignedIssues result
+    - Capture `projectCount` from byProject.size
+    - Store in metrics object
+    - Catch errors and add to errors array
 
-## INN-160 Implement assigned issues in open states query (Done)
+- [x] 3. Update session creation section to collect metrics:
+    - Capture `sessionsCreated` from createSessionsForProjects
+    - Store in metrics object
+    - Catch errors and add to errors array
 
-- [x] 1. Implement `fetchAssignedIssues()` in `src/linear.js` using a GraphQL query filtered by `assigneeId` + `state.name in openStates` and requesting `pageInfo.hasNextPage`.
-- [x] 2. Add truncation detection + warning when results reach `LINEAR_PAGE_LIMIT`.
-- [x] 3. Manual test with real `.env` key: verify it returns issues and logs truncation warning when applicable.
-  - Verified with `ASSIGNEE_ID=<viewerId>`: returns issues
-  - Verified with `LINEAR_PAGE_LIMIT=1`: logs truncation warning
-- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
+- [x] 4. Update health check section to collect metrics:
+    - Capture all metrics from checkAndKillUnhealthySessions result (unhealthyDetected, sessionsKilled, sessionsChecked)
+    - Store in metrics object
+    - Catch errors and add to errors array
 
----
+- [x] 5. Add poll end tracking and summary logging:
+    - Add `const pollEndTimestamp = Date.now()` at the end
+    - Calculate `const pollDurationMs = pollEndTimestamp - pollStartTimestamp`
+    - Log "Poll completed" with all consolidated metrics:
+      - pollDurationMs
+      - issueCount
+      - projectCount
+      - sessionsCreated
+      - unhealthyDetected
+      - sessionsKilled
+      - errorCount
 
-## INN-161 Group issues by project
+- [x] 6. Manual test:
+    - Run `node index.js` with valid .env
+    - Verify poll start/end logs appear
+    - Verify all metrics are present in poll summary
+    - Check logs are readable JSON format
 
-- [x] 1. Implement `groupIssuesByProject()` in `src/linear.js` to return `Map(projectId -> { projectName, issueCount })`, ignoring issues without a project.
-- [x] 2. Add required logging: issue count, project count, ignored-no-project count (+ optional per-ignored issue debug/info).
-- [x] 3. Manual test with real API key: fetch issues, group them, verify logs.
-  - Verified with `ASSIGNEE_ID=<viewerId> node index.js` (logs grouped summary)
-- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-162 Implement serialized polling loop (Done)
-
-- [x] 1. Implement `performPoll()` function in `src/poller.js` that runs the smoke test and fetches assigned issues.
-- [x] 2. Implement polling loop logic in `startPollLoop()`:
-  - Run initial poll immediately on startup
-  - Set up interval timer based on `POLL_INTERVAL_SEC`
-  - Track `isPolling` flag to prevent overlapping polls
-  - Skip poll tick if previous poll is still running, log a warning
-- [x] 3. Test: create test script with artificial delay to verify skip behavior
-  - Poll takes 3s, interval is 2s
-  - Verified: "Skipping poll tick - previous poll still in progress" logged correctly
-- [x] 4. Verify service starts correctly: `node index.js` runs initial poll and starts interval
-- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-164 Implement tmux command runner (Done)
-
-- [x] 1. Review existing tmux.js implementation
-  - Already has execTmux() wrapper using child_process.spawn
-  - Already standardizes return codes (exitCode), stdout/stderr capture
-  - Already has getTmuxVersion() for tmux -V
-  - Already has listSessions() for tmux list-sessions
-- [x] 2. Create test script to verify definition of done:
-  - Test tmux -V works
-  - Test tmux list-sessions works
-  - Verify return codes and output capture for valid/invalid commands
-- [x] 3. Run tests to verify implementation (test script created; requires tmux to be installed to run)
-- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-165 Session naming & ownership rule (Done)
-
-- [x] 1. Implement stricter isOwnedSession() in src/tmux.js:
-  - Session name format: ${TMUX_PREFIX}${projectId}
-  - Must start with TMUX_PREFIX
-  - Must have valid projectId after prefix (alphanumeric or hyphen)
-  - Strict validation to avoid killing random sessions
-- [x] 2. Add extractProjectId() helper to extract projectId from owned session names
-- [x] 3. Create comprehensive test suite (test-session-ownership.js):
-  - 15 test cases for isOwnedSession() (owned and unowned sessions)
-  - 5 test cases for extractProjectId()
-  - All 20 tests passed
-- [x] 4. Definition of done met: owned/unowned classification covered with sample cases
-- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-166 Idempotent create session if missing (Done)
-
-- [x] 1. Implement ensureSession() in src/tmux.js:
-  - Check if session exists using hasSession()
-  - If missing, create detached session running 'pi --prompt "pi [${projectName}] > "'
-  - Return status indicating whether session was created or already existed
-- [x] 2. Integrate session creation into polling loop (src/poller.js):
-  - Add createSessionsForProjects() function
-  - Iterate through projects with qualifying issues
-  - Call ensureSession() for each project
-  - Track and log number of sessions created per poll
-- [x] 3. Create test script (test-idempotent-session.js):
-  - Test 1: First poll creates session
-  - Test 2: Second poll is idempotent (no duplicate)
-  - Test 3: Multiple repeated polls are idempotent
-  - Test 4: Verify "created N sessions" logging pattern
-- [x] 4. Definition of done met:
-  - Repeated polls do not create duplicates (verified by test design)
-  - Log "created N sessions" each poll (implemented via createdCount)
-- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-167 Implement basic health check (Done)
-
-- [x] 1. Implement checkSessionHealth() in src/tmux.js:
-  - Respect SESSION_HEALTH_MODE configuration ('none' or 'basic')
-  - For 'none' mode: always return healthy
-  - For 'basic' mode:
-    - Check if session exists
-    - Check for no panes (unhealthy)
-    - Check for dead panes via pane_dead field (unhealthy)
-  - Return detailed health check result with reason
-- [x] 2. Create test script (test-health-check.js):
-  - Test 1: Health mode 'none' always healthy
-  - Test 2: Non-existent session with 'basic' mode is unhealthy
-  - Test 3: Healthy session with active pane
-  - Test 4: Session with no panes is unhealthy
-  - Test 5: Session with dead pane is unhealthy
-  - Test 6: Health check includes pane details
-- [x] 3. Definition of done met: can detect a deliberately broken/dead session as unhealthy immediately
-- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-168 Implement kill/restart gating (Done)
-
-- [x] 1. Add cooldown tracking functions in src/tmux.js:
-  - isWithinCooldown(): Check if session is in cooldown period
-  - getRemainingCooldown(): Get remaining cooldown time
-  - recordKillAttempt(): Record kill attempt timestamp
-  - clearKillAttempt(): Clear kill attempt timestamp
-- [x] 2. Implement attemptKillUnhealthySession() in src/tmux.js:
-  - Only operate on owned sessions (isOwnedSession check)
-  - Check health status using checkSessionHealth
-  - Log unhealthy detections
-  - Respect SESSION_KILL_ON_UNHEALTHY configuration
-  - Check cooldown before killing
-  - Kill session if outside cooldown
-  - Log cooldown decision
-  - Return {killed, reason} status
-- [x] 3. Integrate into polling loop (src/poller.js):
-  - Add checkAndKillUnhealthySessions() function
-  - Iterate through all sessions
-  - Call attemptKillUnhealthySession for each
-  - Track and log health check statistics
-- [x] 4. Create test script (test-kill-restart-gating.js):
-  - Test 1: Unowned session not killed
-  - Test 2: Healthy session not killed
-  - Test 3: Unhealthy session detection
-  - Test 4: SESSION_KILL_ON_UNHEALTHY=false prevents kill
-  - Test 5: Kill skipped within cooldown
-  - Test 6: Kill proceeds after cooldown expires
-  - Test 7: Cooldown tracking verification
-- [x] 5. Definition of done met:
-  - Avoids kill loops (via cooldown mechanism)
-  - Logs unhealthy detections and kill/cooldown outcomes
-- [x] 6. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-163 Error isolation (Done)
-
-- [x] 1. Review error handling in src/poller.js:
-  - Each operation in performPoll() wrapped in try-catch blocks
-  - Errors logged but not thrown (daemon continues running)
-  - Poll loop interval continues regardless of errors
-- [x] 2. Create test script (test-error-isolation.js):
-  - Test 1: Simulate failures in different operations (API, fetch, session, health)
-  - Test 2: Verify subsequent polls work after failures
-  - Test 3: Simulate multiple consecutive failures
-  - Test 4: Verify recovery after failures
-  - Test 5: Simulate error handling in poll loop (async interval pattern)
-- [x] 3. All tests passed - error isolation verified
-- [x] 4. Definition of done met: simulated failures don't stop future polls
-- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
-
----
-
-## INN-169 Recovery behavior validation (Done)
-
-- [x] 1. Create comprehensive recovery behavior test (test-recovery-behavior.js):
-  - Step 1: Verify no session exists initially
-  - Step 2: Simulate first poll - create session
-  - Step 3: Verify session exists with correct configuration
-  - Step 4: Simulate external kill
-  - Step 5: Simulate second poll - session should be recreated
-  - Step 6: Verify session exists after recovery
-  - Step 7: Test idempotence - multiple polls should not create duplicates
-  - Step 8: Verify only one session exists
-  - Step 9: Full recovery cycle (kill, wait, recreate)
-  - Step 10: Simulate health check killing and recovery
-- [x] 2. Test validates ensureSession() idempotency
-- [x] 3. Test validates recovery after external kill
-- [x] 4. Test validates recovery after health kill
-- [x] 5. Note: Requires tmux to be installed to run tests
-- [x] 6. Definition of done met: matches acceptance criteria end-to-end
-- [x] 7. Update Linear issue (Done + comment), commit, merge to main.
+- [>] 7. Update Linear issue (Done + comment), commit, merge to main

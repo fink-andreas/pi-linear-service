@@ -12,6 +12,20 @@ import { ensureSession, listSessions, attemptKillUnhealthySession } from './tmux
  * @param {Object} config - Configuration object
  */
 async function performPoll(config) {
+  const pollStartTimestamp = Date.now();
+  info('Poll started');
+
+  // Initialize poll metrics
+  const metrics = {
+    issueCount: 0,
+    projectCount: 0,
+    sessionsCreated: 0,
+    sessionsChecked: 0,
+    unhealthyDetected: 0,
+    sessionsKilled: 0,
+    errors: []
+  };
+
   // INN-159: Run a simple query and log success/failure cleanly.
   // IMPORTANT: Never throw here on transient API failures (daemon must keep running).
   let viewerId = config.assigneeId;
@@ -35,6 +49,7 @@ async function performPoll(config) {
     logError('Linear API smoke query failed', {
       error: err?.message || String(err),
     });
+    metrics.errors.push('Linear API smoke query failed');
   }
 
   // INN-160: Query assigned issues in open states (up to LINEAR_PAGE_LIMIT)
@@ -53,12 +68,14 @@ async function performPoll(config) {
       config.linearPageLimit
     );
 
+    metrics.issueCount = issues.length;
     info('Fetched assigned issues', {
       issueCount: issues.length,
       truncated,
     });
 
     byProject = groupIssuesByProject(issues);
+    metrics.projectCount = byProject.size;
     info('Projects with qualifying issues', {
       projectCount: byProject.size,
       projects: Array.from(byProject.keys()),
@@ -67,27 +84,73 @@ async function performPoll(config) {
     logError('Failed to fetch assigned issues', {
       error: err?.message || String(err),
     });
+    metrics.errors.push('Failed to fetch assigned issues');
   }
 
   // INN-166: Create sessions for projects with qualifying issues (idempotent)
   try {
     const createdCount = await createSessionsForProjects(byProject, config);
+    metrics.sessionsCreated = createdCount;
     info('Session creation completed', { createdCount });
   } catch (err) {
     logError('Failed to create sessions', {
       error: err?.message || String(err),
     });
+    metrics.errors.push('Failed to create sessions');
   }
 
   // INN-168: Check and kill unhealthy owned sessions
   try {
     const healthCheckResult = await checkAndKillUnhealthySessions(config);
+    metrics.sessionsChecked = healthCheckResult.sessionsChecked;
+    metrics.unhealthyDetected = healthCheckResult.unhealthyDetected;
+    metrics.sessionsKilled = healthCheckResult.killed;
     info('Health check completed', healthCheckResult);
   } catch (err) {
     logError('Failed to check/kill unhealthy sessions', {
       error: err?.message || String(err),
     });
+    metrics.errors.push('Failed to check/kill unhealthy sessions');
   }
+
+  // Poll completed - log summary with all metrics
+  const pollEndTimestamp = Date.now();
+  const pollDurationMs = pollEndTimestamp - pollStartTimestamp;
+
+  info('Poll completed', {
+    pollDurationMs,
+    pollDurationSec: (pollDurationMs / 1000).toFixed(2),
+    issueCount: metrics.issueCount,
+    projectCount: metrics.projectCount,
+    sessionsCreated: metrics.sessionsCreated,
+    sessionsChecked: metrics.sessionsChecked,
+    unhealthyDetected: metrics.unhealthyDetected,
+    sessionsKilled: metrics.sessionsKilled,
+    errorCount: metrics.errors.length,
+    errors: metrics.errors.length > 0 ? metrics.errors : undefined
+  });
+}
+
+/**
+ * Check if a project should be processed based on filters
+ *
+ * @param {string} projectId - Project ID to check
+ * @param {Object} config - Configuration object
+ * @returns {boolean} True if project should have a session
+ */
+function shouldProcessProject(projectId, config) {
+  // Whitelist: only allow projects in PROJECT_FILTER
+  if (config.projectFilter && config.projectFilter.length > 0) {
+    return config.projectFilter.includes(projectId);
+  }
+
+  // Blacklist: exclude projects in PROJECT_BLACKLIST
+  if (config.projectBlacklist && config.projectBlacklist.length > 0) {
+    return !config.projectBlacklist.includes(projectId);
+  }
+
+  // No filters: process all projects
+  return true;
 }
 
 /**
@@ -100,8 +163,19 @@ async function performPoll(config) {
  */
 async function createSessionsForProjects(byProject, config) {
   let createdCount = 0;
+  let filteredCount = 0;
 
   for (const [projectId, projectData] of byProject) {
+    if (!shouldProcessProject(projectId, config)) {
+      filteredCount++;
+      debug('Project filtered out', {
+        projectId,
+        projectName: projectData.projectName,
+        reason: 'Matches filter criteria',
+      });
+      continue;
+    }
+
     const { projectName } = projectData;
     const sessionName = `${config.tmuxPrefix}${projectId}`;
     const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate);
@@ -119,6 +193,13 @@ async function createSessionsForProjects(byProject, config) {
         projectName,
       });
     }
+  }
+
+  if (filteredCount > 0) {
+    info('Projects filtered', {
+      filtered: filteredCount,
+      processed: byProject.size - filteredCount,
+    });
   }
 
   return createdCount;
