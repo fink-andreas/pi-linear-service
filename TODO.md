@@ -107,3 +107,25 @@
   - Repeated polls do not create duplicates (verified by test design)
   - Log "created N sessions" each poll (implemented via createdCount)
 - [x] 5. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-167 Implement basic health check (Done)
+
+- [x] 1. Implement checkSessionHealth() in src/tmux.js:
+  - Respect SESSION_HEALTH_MODE configuration ('none' or 'basic')
+  - For 'none' mode: always return healthy
+  - For 'basic' mode:
+    - Check if session exists
+    - Check for no panes (unhealthy)
+    - Check for dead panes via pane_dead field (unhealthy)
+  - Return detailed health check result with reason
+- [x] 2. Create test script (test-health-check.js):
+  - Test 1: Health mode 'none' always healthy
+  - Test 2: Non-existent session with 'basic' mode is unhealthy
+  - Test 3: Healthy session with active pane
+  - Test 4: Session with no panes is unhealthy
+  - Test 5: Session with dead pane is unhealthy
+  - Test 6: Health check includes pane details
+- [x] 3. Definition of done met: can detect a deliberately broken/dead session as unhealthy immediately
+- [x] 4. Update Linear issue (Done + comment), commit, merge to main.

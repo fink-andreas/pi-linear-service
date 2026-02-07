@@ -147,6 +147,94 @@ export async function listPanes(sessionName) {
 }
 
 /**
+ * Health check result
+ * @typedef {Object} HealthCheckResult
+ * @property {boolean} healthy - Whether the session is healthy
+ * @property {boolean} exists - Whether the session exists
+ * @property {number} paneCount - Number of panes in the session
+ * @property {boolean} hasDeadPanes - Whether any panes are dead
+ * @property {Array<Object>} panes - Pane information
+ * @property {string} reason - Reason if unhealthy
+ */
+
+/**
+ * Perform a health check on a tmux session
+ * "Unhealthy" if session exists but:
+ * - no panes, OR
+ * - pane process has exited (pane_dead === 1)
+ *
+ * @param {string} sessionName - Session name to check
+ * @param {string} healthMode - Health check mode ('none' or 'basic')
+ * @returns {Promise<HealthCheckResult>}
+ */
+export async function checkSessionHealth(sessionName, healthMode) {
+  // If health mode is 'none', always return healthy
+  if (healthMode === 'none') {
+    return {
+      healthy: true,
+      exists: true,
+      paneCount: 0,
+      hasDeadPanes: false,
+      panes: [],
+      reason: null,
+    };
+  }
+
+  // Check if session exists
+  const exists = await hasSession(sessionName);
+
+  if (!exists) {
+    return {
+      healthy: false,
+      exists: false,
+      paneCount: 0,
+      hasDeadPanes: false,
+      panes: [],
+      reason: 'Session does not exist',
+    };
+  }
+
+  // Get pane information
+  const panes = await listPanes(sessionName);
+  const paneCount = panes.length;
+  const hasDeadPanes = panes.some(pane => pane.isDead);
+
+  // Health check: unhealthy if no panes or any pane is dead
+  if (paneCount === 0) {
+    return {
+      healthy: false,
+      exists: true,
+      paneCount,
+      hasDeadPanes,
+      panes,
+      reason: 'Session has no panes',
+    };
+  }
+
+  if (hasDeadPanes) {
+    const deadPanes = panes.filter(p => p.isDead).map(p => p.paneId);
+    return {
+      healthy: false,
+      exists: true,
+      paneCount,
+      hasDeadPanes,
+      panes,
+      reason: `Session has dead pane(s): ${deadPanes.join(', ')}`,
+    };
+  }
+
+  // Session is healthy
+  return {
+    healthy: true,
+    exists: true,
+    paneCount,
+    hasDeadPanes,
+    panes,
+    reason: null,
+  };
+}
+
+/**
  * Check if a session name matches the ownership pattern
  * Session name format: ${TMUX_PREFIX}${projectId}
  * Example: pi_project_ABC-123 where TMUX_PREFIX=pi_project_
