@@ -35,3 +35,19 @@
 - [x] 3. Manual test with real API key: fetch issues, group them, verify logs.
   - Verified with `ASSIGNEE_ID=<viewerId> node index.js` (logs grouped summary)
 - [x] 4. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-162 Implement serialized polling loop (Done)
+
+- [x] 1. Implement `performPoll()` function in `src/poller.js` that runs the smoke test and fetches assigned issues.
+- [x] 2. Implement polling loop logic in `startPollLoop()`:
+  - Run initial poll immediately on startup
+  - Set up interval timer based on `POLL_INTERVAL_SEC`
+  - Track `isPolling` flag to prevent overlapping polls
+  - Skip poll tick if previous poll is still running, log a warning
+- [x] 3. Test: create test script with artificial delay to verify skip behavior
+  - Poll takes 3s, interval is 2s
+  - Verified: "Skipping poll tick - previous poll still in progress" logged correctly
+- [x] 4. Verify service starts correctly: `node index.js` runs initial poll and starts interval
+- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
