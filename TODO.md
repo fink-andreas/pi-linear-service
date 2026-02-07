@@ -165,3 +165,21 @@
   - Avoids kill loops (via cooldown mechanism)
   - Logs unhealthy detections and kill/cooldown outcomes
 - [x] 6. Update Linear issue (Done + comment), commit, merge to main.
+
+---
+
+## INN-163 Error isolation (Done)
+
+- [x] 1. Review error handling in src/poller.js:
+  - Each operation in performPoll() wrapped in try-catch blocks
+  - Errors logged but not thrown (daemon continues running)
+  - Poll loop interval continues regardless of errors
+- [x] 2. Create test script (test-error-isolation.js):
+  - Test 1: Simulate failures in different operations (API, fetch, session, health)
+  - Test 2: Verify subsequent polls work after failures
+  - Test 3: Simulate multiple consecutive failures
+  - Test 4: Verify recovery after failures
+  - Test 5: Simulate error handling in poll loop (async interval pattern)
+- [x] 3. All tests passed - error isolation verified
+- [x] 4. Definition of done met: simulated failures don't stop future polls
+- [x] 5. Update Linear issue (Done + comment), commit, merge to main.
