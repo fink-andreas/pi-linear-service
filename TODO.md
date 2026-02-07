@@ -24,4 +24,4 @@
 - [x] 3. Manual test with real `.env` key: verify it returns issues and logs truncation warning when applicable.
   - Verified with `ASSIGNEE_ID=<viewerId>`: returns issues
   - Verified with `LINEAR_PAGE_LIMIT=1`: logs truncation warning
-- [>] 4. Update Linear issue (Done + comment), commit, merge to main.
+- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
