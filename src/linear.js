@@ -157,6 +157,18 @@ export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit)
   const nodes = data?.issues?.nodes ?? [];
   const hasNextPage = Boolean(data?.issues?.pageInfo?.hasNextPage);
 
+  // DEBUG: Log issues delivered by Linear API
+  debug('Issues delivered by Linear API', {
+    issueCount: nodes.length,
+    issues: nodes.map(issue => ({
+      id: issue.id,
+      title: issue.title,
+      state: issue.state?.name,
+      project: issue.project?.name,
+      projectId: issue.project?.id,
+    })),
+  });
+
   const truncated = hasNextPage || nodes.length >= limit;
   if (truncated) {
     warn('Linear issues query may be truncated by LINEAR_PAGE_LIMIT', {
