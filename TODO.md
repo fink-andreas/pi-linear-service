@@ -34,4 +34,4 @@
 - [x] 2. Add required logging: issue count, project count, ignored-no-project count (+ optional per-ignored issue debug/info).
 - [x] 3. Manual test with real API key: fetch issues, group them, verify logs.
   - Verified with `ASSIGNEE_ID=<viewerId> node index.js` (logs grouped summary)
-- [>] 4. Update Linear issue (Done + comment), commit, merge to main.
+- [x] 4. Update Linear issue (Done + comment), commit, merge to main.
