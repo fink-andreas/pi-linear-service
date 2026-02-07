@@ -14,6 +14,7 @@ import { ensureSession, listSessions, attemptKillUnhealthySession } from './tmux
 async function performPoll(config) {
   // INN-159: Run a simple query and log success/failure cleanly.
   // IMPORTANT: Never throw here on transient API failures (daemon must keep running).
+  let viewerId = config.assigneeId;
   try {
     debug('Running Linear API smoke test query...');
     const viewer = await runSmokeQuery(config.linearApiKey);
@@ -21,6 +22,15 @@ async function performPoll(config) {
       viewerId: viewer?.id,
       viewerName: viewer?.name,
     });
+    // Use viewer ID from smoke test if ASSIGNEE_ID is not a valid UUID format
+    // Linear user IDs are UUIDs (e.g., 536c7744-75f7-4403-854f-43bca171d0fa)
+    if (viewer?.id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(config.assigneeId)) {
+      info('Using viewer ID from Linear API instead of ASSIGNEE_ID', {
+        configAssigneeId: config.assigneeId,
+        actualViewerId: viewer.id,
+      });
+      viewerId = viewer.id;
+    }
   } catch (err) {
     logError('Linear API smoke query failed', {
       error: err?.message || String(err),
@@ -31,14 +41,14 @@ async function performPoll(config) {
   let byProject = new Map();
   try {
     info('Fetching assigned issues in open states...', {
-      assigneeId: config.assigneeId,
+      assigneeId: viewerId,
       openStates: config.linearOpenStates,
       limit: config.linearPageLimit,
     });
 
     const { issues, truncated } = await fetchAssignedIssues(
       config.linearApiKey,
-      config.assigneeId,
+      viewerId,
       config.linearOpenStates,
       config.linearPageLimit
     );
