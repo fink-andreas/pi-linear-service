@@ -140,7 +140,7 @@ LOG_LEVEL=info
 
 ```bash
 # Dry-run mode (default: false)
-# If true, the service logs intended tmux actions without executing them
+# If true, the service logs intended session actions without executing them
 # Useful for first-time setup to verify configuration before making actual changes
 # Linear API calls still work normally in dry-run mode
 DRY_RUN=false
@@ -152,7 +152,146 @@ DRY_RUN=false
   - Linear API calls work (issues are fetched correctly)
   - Session creation would happen for the right projects
   - Health checks detect sessions properly
-- Once verified, set `DRY_RUN=false` to start actual tmux session management
+- Once verified, set `DRY_RUN=false` to start actual session management
+
+### Session Manager Configuration (settings.json)
+
+The service can use different session managers through a `settings.json` configuration file. This allows you to replace tmux with any other command while maintaining all the existing functionality.
+
+#### Settings File Location
+
+```
+~/.pi/agent/extensions/pi-linear-service/settings.json
+```
+
+#### Supported Session Managers
+
+**1. Tmux Manager (Default)**
+- Uses tmux to create and manage sessions
+- Backward compatible with existing configurations
+- Best for interactive terminal-based workflows
+
+**2. Process Manager (New)**
+- Runs any command as a standalone process
+- Keeps control of the process - no duplicate processes until it exits
+- Health checks based on process status
+- Useful for non-terminal workflows or custom integrations
+
+#### Creating settings.json
+
+If the file doesn't exist, the service uses default configuration (tmux manager).
+
+Create the directory and file:
+```bash
+mkdir -p ~/.pi/agent/extensions/pi-linear-service
+cp settings.json.example ~/.pi/agent/extensions/pi-linear-service/settings.json
+```
+
+#### Configuration Examples
+
+**Example 1: Default Tmux Configuration**
+
+```json
+{
+  "sessionManager": {
+    "type": "tmux",
+    "tmux": {
+      "prefix": "pi_project_"
+    }
+  }
+}
+```
+
+**Example 2: Custom Prefix**
+
+```json
+{
+  "sessionManager": {
+    "type": "tmux",
+    "tmux": {
+      "prefix": "my_work_"
+    }
+  }
+}
+```
+
+**Example 3: Process Manager with Custom Command**
+
+```json
+{
+  "sessionManager": {
+    "type": "process",
+    "process": {
+      "command": "pi",
+      "args": [],
+      "prefix": "pi_project_"
+    }
+  }
+}
+```
+
+**Example 4: Process Manager with Arguments**
+
+```json
+{
+  "sessionManager": {
+    "type": "process",
+    "process": {
+      "command": "/usr/bin/python3",
+      "args": ["--project", "${projectName}", "--issues", "${issueCount}"],
+      "prefix": "my_project_"
+    }
+  }
+}
+```
+
+#### Process Manager Placeholders
+
+The `args` array supports the same placeholders as `SESSION_COMMAND_TEMPLATE`:
+
+| Placeholder | Description |
+|------------|-------------|
+| `${projectName}` | Name of the project |
+| `${projectId}` | Project ID |
+| `${sessionId}` | Full session name |
+| `${issueCount}` | Number of qualifying issues |
+
+#### Process Manager Behavior
+
+When using the process manager:
+
+1. **Single instance guarantee** - Only one process per session name is tracked
+2. **Process monitoring** - Service monitors process status and detects exits
+3. **Automatic cleanup** - Dead processes are removed from tracking
+4. **Graceful shutdown** - Processes are terminated with SIGTERM followed by SIGKILL
+5. **Command validation** - The service logs output from stdout/stderr for debugging
+
+#### Configuration Precedence
+
+1. `settings.json` - Base configuration
+2. Environment variables - Override settings.json (e.g., `TMUX_PREFIX`)
+
+This means you can use settings.json for the main configuration and override specific values via environment variables.
+
+#### Backward Compatibility
+
+- If `settings.json` doesn't exist, the service defaults to tmux manager
+- All existing environment variables continue to work
+- No migration required - service works with or without settings.json
+
+#### Verifying Configuration
+
+The service prints the session manager type and configuration on startup:
+
+```
+Configuration Summary:
+  ...
+  Session Manager:
+    Type: process
+    Command: pi
+    Args: []
+    Prefix: pi_project_
+```
 
 ## How It Works
 

@@ -3,6 +3,7 @@
  */
 
 import dotenv from 'dotenv';
+import { loadSettings, mergeSettingsWithEnv, getDefaultSettings } from './settings.js';
 
 // Load .env file if it exists
 dotenv.config();
@@ -74,16 +75,32 @@ export function printConfigSummary(config) {
   console.log('  Logging:');
   console.log(`    LOG_LEVEL: ${config.logLevel}`);
   console.log('  Dry-run:');
-  console.log(`    DRY_RUN: ${config.dryRun ? 'enabled (no tmux actions will be executed)' : 'disabled'}`);
+  console.log(`    DRY_RUN: ${config.dryRun ? 'enabled (no session actions will be executed)' : 'disabled'}`);
+
+  // Session Manager Configuration
+  if (config.sessionManager) {
+    console.log('  Session Manager:');
+    console.log(`    Type: ${config.sessionManager.type || 'tmux'}`);
+
+    if (config.sessionManager.type === 'tmux' && config.sessionManager.tmux) {
+      console.log(`    Tmux Prefix: ${config.sessionManager.tmux.prefix || config.tmuxPrefix}`);
+    }
+
+    if (config.sessionManager.type === 'process' && config.sessionManager.process) {
+      console.log(`    Command: ${config.sessionManager.process.command || '(not configured)'}`);
+      console.log(`    Args: ${JSON.stringify(config.sessionManager.process.args || [])}`);
+      console.log(`    Prefix: ${config.sessionManager.process.prefix || config.tmuxPrefix}`);
+    }
+  }
+
   console.log('');
 }
 
 /**
- * Validate and parse environment variables
- * @throws {Error} If required environment variables are missing or invalid
- * @returns {Object} Configuration object with all settings
+ * Validate and parse environment variables (internal helper)
+ * @returns {Object} Environment-only configuration
  */
-export function validateEnv() {
+function parseEnvConfig() {
   const missing = [];
 
   for (const varName of REQUIRED_VARS) {
@@ -158,9 +175,55 @@ export function validateEnv() {
       'pi -p "You are working on project: ${projectName} list issues and choose one to work on, if an issue is already in progress - continue"',
 
     // Optional - Logging
-    logLevel: process.env.LOG_LEVEL || 'info',
+    logLevel: logLevel,
 
     // Optional - Dry-run mode
     dryRun: parseEnvBool('DRY_RUN', false),
+  };
+}
+
+/**
+ * Validate and parse environment variables
+ * @throws {Error} If required environment variables are missing or invalid
+ * @returns {Object} Configuration object with all settings
+ * @deprecated Use loadConfig() instead for full settings integration
+ */
+export function validateEnv() {
+  return parseEnvConfig();
+}
+
+/**
+ * Load full configuration from environment and settings.json
+ * This is the recommended way to load configuration
+ *
+ * @returns {Promise<Object>} Configuration object with all settings
+ */
+export async function loadConfig() {
+  // Load environment variables configuration
+  const envConfig = parseEnvConfig();
+
+  // Load settings from settings.json
+  let settings;
+  try {
+    settings = await loadSettings();
+  } catch (err) {
+    const { warn } = await import('./logger.js');
+    warn('Failed to load settings.json, using defaults', {
+      error: err?.message || String(err),
+    });
+    settings = getDefaultSettings();
+  }
+
+  // Merge settings with environment (env takes precedence)
+  const mergedSettings = mergeSettingsWithEnv(settings, envConfig);
+
+  // Determine effective prefix from config
+  const effectivePrefix = mergedSettings.sessionManager?.[mergedSettings.sessionManager?.type]?.prefix ||
+                         envConfig.tmuxPrefix;
+
+  return {
+    ...envConfig,
+    sessionManager: mergedSettings.sessionManager,
+    tmuxPrefix: effectivePrefix, // Use the merged prefix
   };
 }

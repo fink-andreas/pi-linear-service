@@ -5,13 +5,14 @@
 import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
 import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
-import { ensureSession, listSessions, attemptKillUnhealthySession } from './tmux.js';
+import { createSessionManager, attemptKillUnhealthySession } from './session-manager.js';
 
 /**
  * Perform a single poll
  * @param {Object} config - Configuration object
+ * @param {Object} sessionManager - Session manager instance
  */
-async function performPoll(config) {
+async function performPoll(config, sessionManager) {
   const pollStartTimestamp = Date.now();
   info('Poll started');
 
@@ -89,7 +90,7 @@ async function performPoll(config) {
 
   // INN-166: Create sessions for projects with qualifying issues (idempotent)
   try {
-    const createdCount = await createSessionsForProjects(byProject, config);
+    const createdCount = await createSessionsForProjects(byProject, config, sessionManager);
     metrics.sessionsCreated = createdCount;
     info('Session creation completed', { createdCount });
   } catch (err) {
@@ -101,7 +102,7 @@ async function performPoll(config) {
 
   // INN-168: Check and kill unhealthy owned sessions
   try {
-    const healthCheckResult = await checkAndKillUnhealthySessions(config);
+    const healthCheckResult = await checkAndKillUnhealthySessions(config, sessionManager);
     metrics.sessionsChecked = healthCheckResult.sessionsChecked;
     metrics.unhealthyDetected = healthCheckResult.unhealthyDetected;
     metrics.sessionsKilled = healthCheckResult.killed;
@@ -154,14 +155,15 @@ function shouldProcessProject(projectId, config) {
 }
 
 /**
- * Create tmux sessions for projects with qualifying issues
+ * Create sessions for projects with qualifying issues
  * This is idempotent - won't create duplicate sessions
  *
  * @param {Map<string, Object>} byProject - Map of projectId -> {projectName, issueCount}
  * @param {Object} config - Configuration object
+ * @param {Object} sessionManager - Session manager instance
  * @returns {Promise<number>} Number of sessions created in this poll
  */
-async function createSessionsForProjects(byProject, config) {
+async function createSessionsForProjects(byProject, config, sessionManager) {
   let createdCount = 0;
   let filteredCount = 0;
 
@@ -178,7 +180,13 @@ async function createSessionsForProjects(byProject, config) {
 
     const { projectName } = projectData;
     const sessionName = `${config.tmuxPrefix}${projectId}`;
-    const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate, config.dryRun);
+    const result = await sessionManager.ensureSession(
+      sessionName,
+      projectName,
+      projectData,
+      config.sessionCommandTemplate,
+      config.dryRun
+    );
 
     if (result.created) {
       createdCount++;
@@ -209,11 +217,12 @@ async function createSessionsForProjects(byProject, config) {
  * Check and kill unhealthy owned sessions
  *
  * @param {Object} config - Configuration object
+ * @param {Object} sessionManager - Session manager instance
  * @returns {Promise<{sessionsChecked: number, unhealthyDetected: number, killed: number, skipped: number}>}
  */
-async function checkAndKillUnhealthySessions(config) {
+async function checkAndKillUnhealthySessions(config, sessionManager) {
   // Get all sessions
-  const sessions = await listSessions();
+  const sessions = await sessionManager.listSessions();
 
   let sessionsChecked = 0;
   let unhealthyDetected = 0;
@@ -227,6 +236,7 @@ async function checkAndKillUnhealthySessions(config) {
       sessionName,
       config.tmuxPrefix,
       config,
+      sessionManager,
       config.dryRun
     );
 
@@ -273,8 +283,15 @@ export async function startPollLoop(config) {
   // Set log level from config
   setLogLevel(config.logLevel);
 
+  // Create session manager based on configuration
+  const sessionManager = await createSessionManager(config);
+
+  info('Session manager initialized', {
+    type: config.sessionManager?.type || 'tmux',
+  });
+
   if (config.dryRun) {
-    info('DRY-RUN MODE: tmux actions will be logged but not executed');
+    info('DRY-RUN MODE: session actions will be logged but not executed');
   }
 
   info('Starting poll loop...', {
@@ -290,7 +307,7 @@ export async function startPollLoop(config) {
   info('Performing initial poll on startup');
   isPolling = true;
   try {
-    await performPoll(config);
+    await performPoll(config, sessionManager);
   } catch (err) {
     logError('Initial poll failed', {
       error: err?.message || String(err),
@@ -312,7 +329,7 @@ export async function startPollLoop(config) {
 
     // Mark as polling and perform the poll
     isPolling = true;
-    performPoll(config)
+    performPoll(config, sessionManager)
       .catch(err => {
         logError('Poll failed', {
           error: err?.message || String(err),

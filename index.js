@@ -2,17 +2,17 @@
 
 /**
  * pi-linear-service
- * Node.js daemon that polls the Linear GraphQL API and manages per-project tmux sessions
+ * Node.js daemon that polls the Linear GraphQL API and manages per-project sessions
  */
 
-import { validateEnv } from './src/config.js';
+import { loadConfig, printConfigSummary } from './src/config.js';
 import { startPollLoop } from './src/poller.js';
-import { printBanner, logConfig, error as logError } from './src/logger.js';
+import { printBanner, info, error as logError } from './src/logger.js';
 
 /**
  * Boot sequence:
  * 1. Print startup banner
- * 2. Validate environment variables
+ * 2. Load configuration (environment + settings.json)
  * 3. Start poll loop
  */
 async function boot() {
@@ -20,9 +20,9 @@ async function boot() {
   printBanner();
 
   try {
-    // Step 2: Validate environment
-    const config = validateEnv();
-    logConfig(config);
+    // Step 2: Load configuration
+    const config = await loadConfig();
+    printConfigSummary(config);
 
     // Step 3: Start poll loop
     await startPollLoop(config);

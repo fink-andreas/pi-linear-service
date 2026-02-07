@@ -2,7 +2,87 @@
 
 ## Overview
 
-pi-linear-service is a Node.js daemon that polls the Linear GraphQL API and manages per-project tmux sessions for development workflows. The service automatically creates tmux sessions for projects where you have assigned issues in open states.
+pi-linear-service is a Node.js daemon that polls the Linear GraphQL API and manages per-project sessions for development workflows. The service automatically creates sessions for projects where you have assigned issues in open states.
+
+## Session Manager Architecture
+
+The service uses a pluggable session manager architecture that allows you to choose between different session types:
+
+### Available Session Managers
+
+1. **Tmux Session Manager** (default)
+   - Uses tmux to create and manage terminal sessions
+   - Best for interactive terminal-based workflows
+   - Full session health monitoring via tmux introspection
+
+2. **Process Session Manager**
+   - Runs any command as a standalone process
+   - Keeps control of the process - no duplicate processes until it exits
+   - Health checks based on process status
+   - Useful for non-terminal workflows or custom integrations
+
+### Configuration
+
+Session manager configuration is read from `~/.pi/agent/extensions/pi-linear-service/settings.json`:
+
+```json
+{
+  "sessionManager": {
+    "type": "tmux",  // or "process"
+    "tmux": {
+      "prefix": "pi_project_"
+    },
+    "process": {
+      "command": "pi",
+      "args": [],
+      "prefix": "pi_project_"
+    }
+  }
+}
+```
+
+If the file doesn't exist, the service defaults to the tmux manager for backward compatibility.
+
+### Session Manager Interface
+
+All session managers implement a common interface:
+
+```javascript
+class SessionManager {
+  async hasSession(sessionName) { }
+  async createSession(sessionName, command, dryRun) { }
+  async killSession(sessionName, dryRun) { }
+  async listSessions() { }
+  async checkSessionHealth(sessionName, healthMode) { }
+  isOwnedSession(sessionName, prefix) { }
+}
+```
+
+### Session Manager Factory
+
+The `createSessionManager()` function creates the appropriate session manager based on configuration:
+
+```javascript
+const sessionManager = await createSessionManager(config);
+```
+
+This automatically selects the TmuxSessionManager or ProcessSessionManager based on `config.sessionManager.type`.
+
+### How Different Managers Handle Sessions
+
+| Feature | Tmux Manager | Process Manager |
+|---------|--------------|-----------------|
+| Session storage | tmux server | In-memory Map |
+| Health check | tmux panes introspection | Process status checks |
+| Kill method | `tmux kill-session` | SIGTERM → SIGKILL |
+| Ownership | Session name pattern | Session name pattern |
+| Idempotence | `tmux has-session` check | Process tracking Map |
+
+### Backward Compatibility
+
+- Existing `.env` configuration continues to work
+- Missing `settings.json` defaults to tmux manager
+- No migration required
 
 ## Architecture
 
@@ -17,18 +97,37 @@ pi-linear-service is a Node.js daemon that polls the Linear GraphQL API and mana
 ┌──────────────┐              ┌──────────────┐
 │  config.js   │              │  logger.js   │
 │              │              │              │
-│ - validateEnv│              │ - debug/info │
+│ - loadConfig │              │ - debug/info │
 │ - printConfig│              │ - warn/error │
-└──────────────┘              └──────────────┘
+│   Summary    │              └──────────────┘
+└──────┬───────┘
        │
        ▼
 ┌──────────────┐
 │  poller.js   │  Main polling loop
 └──────┬───────┘
        │
-       ├─────────────────────┬───────────────────┐
-       │                     │                   │
-       ▼                     ▼                   ▼
+       ├──────────────────────────────────────────────────┐
+       │                                                  │
+       │              ┌──────────────────┐                │
+       │              │SessionManager    │                │
+       │              │   (interface)    │                │
+       │              ├───┬──────────┬────┤                │
+       │              │   │          │    │                │
+       │              ▼   ▼          ▼    │                │
+       │       ┌─────────┐  ┌─────────┐   │                │
+       │       │Tmux     │  │Process  │   │                │
+       │       │Manager  │  │Manager  │   │                │
+       │       └────┬────┘  └────┬────┘   │                │
+       │            │             │        │                │
+       │      tmux│          process│      │                │
+       │      sessions         |        │                │
+       │                        health   │                │
+       │                        checks   │                │
+       │                                  │                │
+       │  ┌───────────────────────────────┴────┐          │
+       │  │                                   │          │
+       ▼  ▼                                   ▼          │
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │  linear.js   │    │   tmux.js    │    │  health.js   │
 │              │    │              │    │              │
