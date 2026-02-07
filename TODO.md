@@ -33,4 +33,4 @@
     - Run through all user unit deployment verification steps
     - Verify each step is clear and reproducible
 
-- [>] 6. Update Linear issue (Done + comment), commit, merge to main
+- [x] 6. Update Linear issue (Done + comment), commit, merge to main
