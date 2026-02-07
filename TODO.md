@@ -1,29 +1,43 @@
-# TODO - INN-173: Document start-on-boot for user
+# TODO - INN-171: Debug logging controls (optional)
 
 ## Definition of Done
-- README includes exact commands ✓
-- Log viewing instructions (`journalctl --user -u pi-linear.service`) ✓
+- Support LOG_LEVEL to reduce noise ✓
+- Debug logs for "issues with no project" are suppressible ✓
 
 ## Verification Steps
 
-- [x] 1. Verify `loginctl enable-linger` guidance:
-    - Command present: `loginctl enable-linger $USER`
-    - Context: How to check if lingering is enabled
-    - Context: How to enable if not already enabled
+- [x] 1. Verify LOG_LEVEL support in logger.js:
+    - LOG_LEVEL environment variable is read from process.env
+    - Default level is 'info'
+    - Valid levels: debug, info, warn, error
+    - shouldLog() function filters based on level
+    - setLogLevel() function to change level dynamically
 
-- [x] 2. Verify what linger implies is documented:
-    - "If Linger=yes, user services will start on boot"
-    - Clear explanation of the command's purpose
+- [x] 2. Verify LOG_LEVEL validation in config.js:
+    - Valid log levels are defined: ['error', 'warn', 'info', 'debug']
+    - LOG_LEVEL is validated on startup
+    - Invalid levels throw error with message
+    - Default is 'info' if not set
 
-- [x] 3. Verify journalctl commands:
-    - `journalctl --user -u pi-linear.service -n 50` (view recent logs)
-    - `journalctl --user -u pi-linear.service -f` (follow logs in real-time)
-    - `journalctl --user -u pi-linear.service -b` (view since last boot)
-    - All documented in "Check status and logs" section
+- [x] 3. Verify debug log for "issues with no project":
+    - src/linear.js line 181: debug('Ignoring issue with no project', ...)
+    - Logs issueId, title, and state
+    - Only shown when LOG_LEVEL=debug
 
-- [x] 4. Verify commands are exact and copy-pasteable:
-    - All commands use single-line format
-    - No placeholders requiring substitution ($USER is standard shell variable)
-    - Commands work as-is
+- [x] 4. Verify LOG_LEVEL documentation in README:
+    - Logging section includes LOG_LEVEL
+    - Default value: info
+    - Valid levels: error | warn | info | debug
+    - Configuration summary shows current LOG_LEVEL
 
-- [>] 5. Update Linear issue (Done + comment), commit, merge to main
+- [x] 5. Verify suppressibility:
+    - When LOG_LEVEL=info (default), debug logs are hidden
+    - When LOG_LEVEL=debug, all logs including "issues with no project" are shown
+    - This reduces noise for normal operation while allowing debug when needed
+
+- [x] 6. Test LOG_LEVEL behavior:
+    - Default (info) doesn't show debug logs
+    - LOG_LEVEL=debug shows all logs including "Ignoring issue with no project"
+    - Invalid LOG_LEVEL throws clear error
+
+- [>] 7. Update Linear issue (Done + comment), commit, merge to main
