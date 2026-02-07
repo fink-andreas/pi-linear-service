@@ -1,117 +1,71 @@
-# Plan - INN-178: Add simple metrics in logs
+# Plan - INN-177: Add dry-run mode
 
 ## Overview
-Add simple performance metrics to logs for:
-- Poll duration: Time taken for each polling cycle
-- API latency: Time taken for Linear GraphQL API calls
-- tmux command latency: Time taken for tmux commands
+Add a dry-run mode that logs intended tmux actions without executing them. This is helpful for first-time setup to verify what the service would do without actually creating/managing tmux sessions.
 
 ## Files Involved
 
-### src/poller.js
-- Poll loop orchestration
-- Calls Linear API and tmux operations
-- Needs: Poll duration metrics
-
-### src/linear.js
-- GraphQL API queries
-- Needs: API latency metrics
+### src/config.js
+- Add DRY_RUN environment variable (default: false)
+- Pass dry-run flag to tmux module
 
 ### src/tmux.js
-- Tmux command execution
-- Needs: tmux command latency metrics
+- Accept dry-run parameter in session management functions
+- Log intended actions instead of executing when dry-run is enabled
+- Functions to modify: createSession, killSession, maybe execTmux
 
-### src/metrics.js (NEW)
-- Create new module for metrics collection
-- Helper functions for timing operations
-- Format metrics for logging
-
-## Current Architecture
-
-### Poll Loop Flow (src/poller.js)
-1. Start poll tick
-2. Check if previous poll still running (skip if yes)
-3. Execute Linear GraphQL query
-4. Group issues by project
-5. For each project:
-   - Check/create tmux session
-   - Run health checks
-6. End poll tick
-
-### Linear API Calls (src/linear.js)
-- fetchAssignedIssues(): Gets issues from Linear
-- Uses HTTP POST to GraphQL endpoint
-
-### Tmux Commands (src/tmux.js)
-- listSessions(): Get list of tmux sessions
-- newSession(): Create new tmux session
-- killSession(): Kill a tmux session
-- getSessionInfo(): Get session information
-- All use child_process.exec() or execSync()
+### src/poller.js
+- Pass dry-run flag to tmux operations
+- Log when dry-run mode is active
 
 ## Implementation Plan
 
-### 1. Create src/metrics.js Module
-```javascript
-// Helper for timing operations
-export function measureTime(fn) {
-  const start = Date.now();
-  try {
-    const result = fn();
-    const duration = Date.now() - start;
-    return { result, duration, success: true };
-  } catch (error) {
-    const duration = Date.now() - start;
-    return { error, duration, success: false };
-  }
-}
+### 1. Add DRY_RUN Configuration
+- Add DRY_RUN environment variable (default: false)
+- Document in config summary
+- Add to .env.example
 
-// Helper for measuring async operations
-export async function measureTimeAsync(fn) {
-  const start = Date.now();
-  try {
-    const result = await fn();
-    const duration = Date.now() - start;
-    return { result, duration, success: true };
-  } catch (error) {
-    const duration = Date.now() - start;
-    return { error, duration, success: false };
-  }
-}
-```
+### 2. Update tmux Module for Dry-Run
+- Pass dry-run flag to session management functions
+- In createSession: log "Would create session" instead of creating
+- In killSession: log "Would kill session" instead of killing
+- Ensure other tmux operations (listSessions, hasSession) still work in dry-run
 
-### 2. Add Poll Duration Metrics (src/poller.js)
-- Wrap entire poll cycle with timing
-- Log poll duration at end of cycle
-- Include in pollStarted/pollCompleted logs
+### 3. Update Poller
+- Log when dry-run mode is active
+- Pass dry-run flag from config to tmux operations
 
-### 3. Add API Latency Metrics (src/linear.js)
-- Wrap GraphQL query execution with timing
-- Log API latency for each fetch
-- Include error handling with duration
-
-### 4. Add tmux Command Latency Metrics (src/tmux.js)
-- Wrap each tmux command execution with timing
-- Log duration for listSessions, newSession, killSession, getSessionInfo
-- Include in debug logs for detailed visibility
-
-### 5. Update Logging
-- Add metrics to existing log entries where relevant
-- Format: duration in milliseconds (ms)
-- Example: {"level":"INFO","message":"Poll completed","durationMs":1234,"issuesCount":5}
+### 4. Update Documentation
+- Add DRY_RUN to README configuration section
+- Explain usage for first-time setup
 
 ## High-Level TODO
 
-- [ ] 1. Create src/metrics.js module with timing helpers
-- [ ] 2. Add poll duration metrics to src/poller.js
-- [ ] 3. Add API latency metrics to src/linear.js
-- [ ] 4. Add tmux command latency metrics to src/tmux.js
-- [ ] 5. Test metrics appear in logs
-- [ ] 6. Verify metrics don't impact performance
+- [ ] 1. Add DRY_RUN environment variable to config.js
+- [ ] 2. Update tmux.js functions to support dry-run mode
+- [ ] 3. Update poller.js to pass dry-run flag
+- [ ] 4. Update .env.example and README.md
+- [ ] 5. Test dry-run mode logs intended actions
+- [ ] 6. Test normal mode still executes actions
+
+## Behavior in Dry-Run Mode
+
+### What Still Runs
+- Linear API queries (to fetch issues)
+- Polling loop (to check for changes)
+- Session listing and health checks (to see current state)
+
+### What Gets Skipped/Logged Only
+- Creating new tmux sessions (logs "Would create session...")
+- Killing tmux sessions (logs "Would kill session...")
+
+### Example Log Output
+```
+{"level":"INFO","message":"DRY-RUN MODE: Skipping tmux session creation","sessionName":"pi_project_ABC-123","projectName":"My Project","command":"pi -p ..."}
+```
 
 ## Non-Goals
 
-- Complex metrics aggregation or storage
-- Metrics visualization dashboards
-- Performance analysis beyond simple timing
-- Historical metrics comparison
+- Dry-run for Linear API operations (already safe/read-only)
+- Simulating tmux session state (assumes sessions don't exist in dry-run)
+- Undo capabilities (dry-run is one-way preview)

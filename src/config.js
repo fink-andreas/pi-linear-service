@@ -73,6 +73,8 @@ export function printConfigSummary(config) {
   console.log(`    SESSION_COMMAND_TEMPLATE: ${config.sessionCommandTemplate}`);
   console.log('  Logging:');
   console.log(`    LOG_LEVEL: ${config.logLevel}`);
+  console.log('  Dry-run:');
+  console.log(`    DRY_RUN: ${config.dryRun ? 'enabled (no tmux actions will be executed)' : 'disabled'}`);
   console.log('');
 }
 
@@ -157,5 +159,8 @@ export function validateEnv() {
 
     // Optional - Logging
     logLevel: process.env.LOG_LEVEL || 'info',
+
+    // Optional - Dry-run mode
+    dryRun: parseEnvBool('DRY_RUN', false),
   };
 }

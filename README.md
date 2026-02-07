@@ -136,6 +136,24 @@ SESSION_RESTART_COOLDOWN_SEC=60
 LOG_LEVEL=info
 ```
 
+#### Dry-run Mode
+
+```bash
+# Dry-run mode (default: false)
+# If true, the service logs intended tmux actions without executing them
+# Useful for first-time setup to verify configuration before making actual changes
+# Linear API calls still work normally in dry-run mode
+DRY_RUN=false
+```
+
+**Use case:** First-time setup
+- Set `DRY_RUN=true` when you first configure the service
+- Run the service and verify that:
+  - Linear API calls work (issues are fetched correctly)
+  - Session creation would happen for the right projects
+  - Health checks detect sessions properly
+- Once verified, set `DRY_RUN=false` to start actual tmux session management
+
 ## How It Works
 
 ### 1. Polling Loop

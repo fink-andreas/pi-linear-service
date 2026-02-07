@@ -1,38 +1,37 @@
-# TODO - INN-178: Add simple metrics in logs
+# TODO - INN-177: Add dry-run mode
 
 ## Implementation Steps
 
-- [x] 1. Create src/metrics.js module:
-    - Add measureTime() function for synchronous operations
-    - Add measureTimeAsync() function for async operations
-    - Return object with { result/duration/success } or { error/duration/success }
-    - Export both functions
+- [x] 1. Add DRY_RUN configuration to src/config.js:
+    - Add parseEnvBool for DRY_RUN (default: false)
+    - Include dryRun in config object
+    - Display in configuration summary
+    - Add to .env.example
 
-- [x] 2. Add poll duration metrics to src/poller.js:
-    - Import measureTimeAsync from src/metrics.js
-    - Wrap poll tick execution with measureTimeAsync
-    - Log poll duration in pollCompleted message
-    - Format: {"message":"Poll completed","durationMs":1234,"issuesCount":5}
+- [x] 2. Update tmux.js functions for dry-run support:
+    - Modify createSession to accept dryRun parameter
+    - Modify killSession to accept dryRun parameter
+    - In dry-run mode, log "Would create session" or "Would kill session" instead of executing
+    - Ensure listSessions, hasSession, listPanes still work in dry-run (read-only operations)
 
-- [x] 3. Add API latency metrics to src/linear.js:
-    - Import measureTimeAsync from src/metrics.js
-    - Wrap GraphQL fetch in measureTimeAsync
-    - Log API latency on success and error
-    - Format: {"message":"Fetched assigned issues","durationMs":456,"count":10}
-    - Format: {"message":"Failed to fetch issues","durationMs":789,"error":"..."}
+- [x] 3. Update poller.js to pass dry-run flag:
+    - Add dry-run mode startup log
+    - Pass config.dryRun to tmux operations
 
-- [x] 4. Add tmux command latency metrics to src/tmux.js:
-    - Import measureTime and measureTimeAsync from src/metrics.js
-    - Wrap listSessions() with measureTimeAsync
-    - Wrap newSession() with measureTimeAsync
-    - Wrap killSession() with measureTimeAsync
-    - Wrap getSessionInfo() with measureTimeAsync
-    - Add durationMs to relevant log entries
+- [x] 4. Update documentation:
+    - Add DRY_RUN to .env.example
+    - Add DRY_RUN to README.md configuration section
+    - Explain usage for first-time setup
 
-- [x] 5. Test metrics appear in logs:
-    - Run service with LOG_LEVEL=info
-    - Verify poll duration appears in logs
-    - Verify API latency appears in logs
-    - Verify tmux command latency appears in logs
+- [x] 5. Test dry-run mode:
+    - Run service with DRY_RUN=true
+    - Verify Linear API calls still work
+    - Verify tmux create actions are logged but not executed
+    - Verify tmux kill actions are logged but not executed
 
-- [>] 6. Update Linear issue (Done + comment), commit, merge to main
+- [x] 6. Test normal mode:
+    - Run service with DRY_RUN=false (default)
+    - Verify tmux sessions are created as expected
+    - Verify dry-run mode doesn't affect normal operation
+
+- [>] 7. Update Linear issue (Done + comment), commit, merge to main

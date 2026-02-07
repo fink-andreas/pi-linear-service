@@ -3,7 +3,7 @@
  */
 
 import { spawn } from 'child_process';
-import { error as logError, debug, info } from './logger.js';
+import { error as logError, debug, info, warn } from './logger.js';
 import { measureTimeAsync } from './metrics.js';
 
 /**
@@ -70,9 +70,14 @@ export async function hasSession(sessionName) {
  * Create a new detached tmux session
  * @param {string} sessionName - Session name to create
  * @param {string} command - Command to run in the session
- * @returns {Promise<boolean>} True if session was created successfully
+ * @param {boolean} dryRun - If true, log action without executing
+ * @returns {Promise<boolean>} True if session was created successfully (or would be in dry-run)
  */
-export async function createSession(sessionName, command) {
+export async function createSession(sessionName, command, dryRun = false) {
+  if (dryRun) {
+    info('DRY-RUN: Would create tmux session', { sessionName, command });
+    return true;
+  }
   debug('Creating tmux session', { sessionName, command });
   const result = await execTmux(['new-session', '-d', '-s', sessionName, command]);
   return result.exitCode === 0;
@@ -103,9 +108,10 @@ export function replacePlaceholders(template, values) {
  * @param {string} projectName - Human-readable project name
  * @param {Object} projectData - Project data with issueCount, issues
  * @param {string} commandTemplate - Template for session command with placeholders
+ * @param {boolean} dryRun - If true, log action without executing
  * @returns {Promise<{created: boolean, existed: boolean, sessionName: string}>}
  */
-export async function ensureSession(sessionName, projectName, projectData, commandTemplate) {
+export async function ensureSession(sessionName, projectName, projectData, commandTemplate, dryRun = false) {
   // Check if session already exists
   const exists = await hasSession(sessionName);
 
@@ -126,7 +132,7 @@ export async function ensureSession(sessionName, projectName, projectData, comma
 
   info('Creating tmux session', { sessionName, projectName, command });
 
-  const success = await createSession(sessionName, command);
+  const success = await createSession(sessionName, command, dryRun);
 
   if (success) {
     info('Session created successfully', { sessionName });
@@ -140,9 +146,14 @@ export async function ensureSession(sessionName, projectName, projectData, comma
 /**
  * Kill a tmux session
  * @param {string} sessionName - Session name to kill
- * @returns {Promise<boolean>} True if session was killed successfully
+ * @param {boolean} dryRun - If true, log action without executing
+ * @returns {Promise<boolean>} True if session was killed successfully (or would be in dry-run)
  */
-export async function killSession(sessionName) {
+export async function killSession(sessionName, dryRun = false) {
+  if (dryRun) {
+    info('DRY-RUN: Would kill tmux session', { sessionName });
+    return true;
+  }
   debug('Killing tmux session', { sessionName });
   const result = await execTmux(['kill-session', '-t', sessionName]);
   return result.exitCode === 0;
@@ -396,7 +407,7 @@ export function clearKillAttempt(sessionName) {
  * @param {Object} config - Configuration object
  * @returns {Promise<{killed: boolean, reason: string}>}
  */
-export async function attemptKillUnhealthySession(sessionName, prefix, config) {
+export async function attemptKillUnhealthySession(sessionName, prefix, config, dryRun = false) {
   // Only operate on owned sessions
   if (!isOwnedSession(sessionName, prefix)) {
     return {
@@ -450,15 +461,18 @@ export async function attemptKillUnhealthySession(sessionName, prefix, config) {
     reason: healthResult.reason,
   });
 
-  const killed = await killSession(sessionName);
+  const killed = await killSession(sessionName, dryRun);
   if (killed) {
-    recordKillAttempt(sessionName);
+    // Only record kill attempt if not in dry-run mode
+    if (!dryRun) {
+      recordKillAttempt(sessionName);
+    }
     info('Unhealthy session killed', {
       sessionName,
     });
     return {
       killed: true,
-      reason: 'Session killed successfully',
+      reason: dryRun ? 'Session would be killed (dry-run)' : 'Session killed successfully',
     };
   } else {
     logError('Failed to kill unhealthy session', {

@@ -178,7 +178,7 @@ async function createSessionsForProjects(byProject, config) {
 
     const { projectName } = projectData;
     const sessionName = `${config.tmuxPrefix}${projectId}`;
-    const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate);
+    const result = await ensureSession(sessionName, projectName, projectData, config.sessionCommandTemplate, config.dryRun);
 
     if (result.created) {
       createdCount++;
@@ -226,7 +226,8 @@ async function checkAndKillUnhealthySessions(config) {
     const result = await attemptKillUnhealthySession(
       sessionName,
       config.tmuxPrefix,
-      config
+      config,
+      config.dryRun
     );
 
     if (result.reason === 'Session not owned by this service') {
@@ -272,9 +273,14 @@ export async function startPollLoop(config) {
   // Set log level from config
   setLogLevel(config.logLevel);
 
+  if (config.dryRun) {
+    info('DRY-RUN MODE: tmux actions will be logged but not executed');
+  }
+
   info('Starting poll loop...', {
     pollIntervalSec: config.pollIntervalSec,
     tmuxPrefix: config.tmuxPrefix,
+    dryRun: config.dryRun,
   });
 
   // Track if a poll is currently running
