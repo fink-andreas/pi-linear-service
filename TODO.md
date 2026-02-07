@@ -11,4 +11,4 @@
 - [x] 4. Manual test:
   - `LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js` logs a clean failure and exits/continues as intended
   - `node index.js` with real `.env` key logs success
-- [>] 5. Ensure repo is clean and implementation matches INN-159 definition of done; update Linear issue with summary + files changed.
+- [x] 5. Ensure repo is clean and implementation matches INN-159 definition of done; update Linear issue with summary + files changed.
