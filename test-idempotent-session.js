@@ -11,6 +11,8 @@ import { info, error as logError } from './src/logger.js';
 const TMUX_PREFIX = 'pi_project_';
 const TEST_SESSION_NAME = `${TMUX_PREFIX}TEST-PROJECT`;
 const TEST_PROJECT_NAME = 'Test Project';
+const COMMAND_TEMPLATE = 'sleep 3600';
+const PROJECT_DATA = { issueCount: 0 };
 
 async function runTests() {
   info('Testing idempotent session creation...', {
@@ -32,7 +34,7 @@ async function runTests() {
   // Test 1: First poll - should create the session
   info('\nTest 1: First poll - should create session');
   try {
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, PROJECT_DATA, COMMAND_TEMPLATE);
     if (result.created && !result.existed) {
       info('✓ Session created on first poll', { result });
       createdCount = 1;
@@ -58,7 +60,7 @@ async function runTests() {
   // Test 2: Second poll - should NOT create duplicate (idempotent)
   info('\nTest 2: Second poll - should be idempotent (no duplicate)');
   try {
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, PROJECT_DATA, COMMAND_TEMPLATE);
     if (!result.created && result.existed) {
       info('✓ Second poll did not create duplicate (idempotent)', { result });
     } else {
@@ -89,7 +91,7 @@ async function runTests() {
   // Test 3: Multiple repeated polls - all should be idempotent
   info('\nTest 3: Multiple repeated polls - all idempotent');
   for (let i = 1; i <= 5; i++) {
-    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+    const result = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, PROJECT_DATA, COMMAND_TEMPLATE);
     if (!result.created && result.existed) {
       info(`✓ Poll ${i + 2} - idempotent`);
     } else {
@@ -118,12 +120,12 @@ async function runTests() {
 
   // Clean up and simulate first poll
   await killSession(TEST_SESSION_NAME);
-  const result1 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+  const result1 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, PROJECT_DATA, COMMAND_TEMPLATE);
   totalCreated += result1.created ? 1 : 0;
   polls.push({ poll: 1, createdThisPoll: result1.created ? 1 : 0, totalCreated });
 
   // Simulate second poll
-  const result2 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME);
+  const result2 = await ensureSession(TEST_SESSION_NAME, TEST_PROJECT_NAME, PROJECT_DATA, COMMAND_TEMPLATE);
   totalCreated += result2.created ? 1 : 0;
   polls.push({ poll: 2, createdThisPoll: result2.created ? 1 : 0, totalCreated });
 

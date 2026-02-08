@@ -134,6 +134,8 @@ async function runTests() {
   // Test 5: Kill should be skipped if within cooldown
   info('\nTest 5: Kill should be skipped if within cooldown');
   try {
+    clearKillAttempt(TEST_SESSION_NAME);
+
     // Create an unhealthy session
     await createSession(TEST_SESSION_NAME, 'exit');
     await new Promise(resolve => setTimeout(resolve, 500));

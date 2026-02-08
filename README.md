@@ -1,15 +1,15 @@
 # pi-linear-service
 
-A Node.js daemon that polls the Linear GraphQL API and manages per-project tmux sessions with the pi coding assistant.
+A Node.js daemon that polls the Linear GraphQL API and manages per-project pi sessions (RPC mode by default) for the pi coding assistant.
 
 ## Features
 
-- **Automated session creation**: Creates tmux sessions for projects where you have assigned issues
-- **Polling**: Continuously polls Linear API for new issues (default: every 5 minutes)
-- **Batch processing**: Each session runs pi in non-interactive mode to process one task at a time
-- **Health checking**: Monitors session health and optionally kills unhealthy sessions
+- **Automated session creation**: Creates one persistent `pi --mode rpc` process per Linear project (default), optionally configured with `--provider/--model`
+- **Polling**: Continuously polls Linear API for new issues
+- **One-at-a-time prompting**: Sends a prompt to a project session only when it is idle
+- **Timeout handling**: Aborts + restarts stuck RPC sessions (default timeout: 120s)
 - **Error isolation**: Transient failures don't stop the daemon
-- **Cooldown protection**: Prevents kill/restart loops for failing sessions
+- **Cooldown protection**: Prevents restart loops for failing sessions
 
 ## Quick Start
 
@@ -154,9 +154,28 @@ DRY_RUN=false
   - Health checks detect sessions properly
 - Once verified, set `DRY_RUN=false` to start actual session management
 
-### Session Manager Configuration (settings.json)
+### Mode Configuration (settings.json)
 
-The service can use different session managers through a `settings.json` configuration file. This allows you to replace tmux with any other command while maintaining all the existing functionality.
+The service supports two modes:
+- **RPC mode (default)**: runs `pi --mode rpc` as a persistent process per Linear project.
+- **Legacy mode**: uses the previous tmux/process session manager logic.
+
+Settings file location:
+```
+~/.pi/agent/extensions/pi-linear-service/settings.json
+```
+
+#### RPC workspace directory (start pi in the correct repo)
+
+If your GitHub repos are cloned under a base directory (e.g. `~/dvl`) and the folder name matches the Linear project name, set:
+- `rpc.workspaceRoot` in `settings.json`, or
+- `RPC_WORKSPACE_ROOT` env var.
+
+Then `pi` is spawned with `cwd = <workspaceRoot>/<LinearProjectName>`.
+
+If the repo folder name differs from the Linear project name, use:
+- `rpc.projectDirOverrides` (map of `projectName` or `projectId` → directory)
+  - value can be relative to `rpc.workspaceRoot` or an absolute path.
 
 #### Settings File Location
 

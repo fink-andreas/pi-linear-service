@@ -70,6 +70,9 @@ export function printConfigSummary(config) {
   console.log(`    SESSION_HEALTH_MODE: ${config.sessionHealthMode}`);
   console.log(`    SESSION_KILL_ON_UNHEALTHY: ${config.sessionKillOnUnhealthy}`);
   console.log(`    SESSION_RESTART_COOLDOWN_SEC: ${config.sessionRestartCooldownSec}s`);
+  console.log('  Project Filters:');
+  console.log(`    PROJECT_FILTER: ${(config.projectFilter || []).join(', ') || '(none)'}`);
+  console.log(`    PROJECT_BLACKLIST: ${(config.projectBlacklist || []).join(', ') || '(none)'}`);
   console.log('  Session Command:');
   console.log(`    SESSION_COMMAND_TEMPLATE: ${config.sessionCommandTemplate}`);
   console.log('  Logging:');
@@ -77,9 +80,25 @@ export function printConfigSummary(config) {
   console.log('  Dry-run:');
   console.log(`    DRY_RUN: ${config.dryRun ? 'enabled (no session actions will be executed)' : 'disabled'}`);
 
-  // Session Manager Configuration
-  if (config.sessionManager) {
-    console.log('  Session Manager:');
+  // Mode configuration
+  console.log('  Mode:');
+  console.log(`    MODE: ${config.mode || 'rpc'}`);
+
+  if ((config.mode || 'rpc') === 'rpc') {
+    console.log('  RPC:');
+    console.log(`    RPC_TIMEOUT_MS: ${config.rpc?.timeoutMs ?? 120000}`);
+    console.log(`    RPC_RESTART_COOLDOWN_SEC: ${config.rpc?.restartCooldownSec ?? config.sessionRestartCooldownSec}`);
+    console.log(`    PI_COMMAND: ${config.rpc?.piCommand || 'pi'}`);
+    console.log(`    PI_ARGS: ${JSON.stringify(config.rpc?.piArgs || [])}`);
+    console.log(`    RPC_WORKSPACE_ROOT: ${config.rpc?.workspaceRoot || '(inherit service cwd)'}`);
+    console.log(`    RPC_PROVIDER: ${config.rpc?.provider || '(default)'}`);
+    console.log(`    RPC_MODEL: ${config.rpc?.model || '(default)'}`);
+    console.log(`    RPC_PROJECT_DIR_OVERRIDES: ${config.rpc?.projectDirOverrides ? Object.keys(config.rpc.projectDirOverrides).length : 0} entries`);
+  }
+
+  // Legacy session manager configuration (only relevant when MODE=legacy)
+  if ((config.mode || 'rpc') === 'legacy' && config.sessionManager) {
+    console.log('  Session Manager (legacy):');
     console.log(`    Type: ${config.sessionManager.type || 'tmux'}`);
 
     if (config.sessionManager.type === 'tmux' && config.sessionManager.tmux) {
@@ -165,6 +184,10 @@ function parseEnvConfig() {
     linearOpenStates: parseEnvList('LINEAR_OPEN_STATES', ['Todo', 'In Progress']),
     linearPageLimit,
 
+    // Optional - Project filtering
+    projectFilter: parseEnvList('PROJECT_FILTER', []),
+    projectBlacklist: parseEnvList('PROJECT_BLACKLIST', []),
+
     // Optional - Health & recovery
     sessionHealthMode,
     sessionKillOnUnhealthy: parseEnvBool('SESSION_KILL_ON_UNHEALTHY', false),
@@ -217,13 +240,18 @@ export async function loadConfig() {
   // Merge settings with environment (env takes precedence)
   const mergedSettings = mergeSettingsWithEnv(settings, envConfig);
 
-  // Determine effective prefix from config
-  const effectivePrefix = mergedSettings.sessionManager?.[mergedSettings.sessionManager?.type]?.prefix ||
-                         envConfig.tmuxPrefix;
+  // Determine effective prefix from legacy session manager config
+  const legacyType = mergedSettings.legacy?.sessionManager?.type;
+  const effectiveLegacyPrefix = mergedSettings.legacy?.sessionManager?.[legacyType]?.prefix || envConfig.tmuxPrefix;
 
   return {
     ...envConfig,
-    sessionManager: mergedSettings.sessionManager,
-    tmuxPrefix: effectivePrefix, // Use the merged prefix
+    mode: mergedSettings.mode || 'rpc',
+    rpc: mergedSettings.rpc,
+    legacy: mergedSettings.legacy,
+
+    // Backward compatible fields (used by legacy tmux/process code paths)
+    sessionManager: mergedSettings.legacy?.sessionManager,
+    tmuxPrefix: effectiveLegacyPrefix,
   };
 }

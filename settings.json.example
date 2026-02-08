@@ -1,29 +1,30 @@
 {
-  "_comment": "Session Manager Configuration",
-  "_comment": "This file allows you to configure the session manager type and its options.",
-  "_comment": "Valid types: 'tmux' (default) or 'process'",
-
-  "sessionManager": {
-    "type": "tmux",
-
-    "_comment_tmux": "Configuration for tmux session manager (used when type: 'tmux')",
-    "tmux": {
-      "prefix": "pi_project_"
-    },
-
-    "_comment_process": "Configuration for process session manager (used when type: 'process')",
-    "_comment_process": "This allows you to run any command instead of tmux",
-    "process": {
-      "_command_command": "The command to run (e.g., 'pi', 'npm', '/usr/bin/python')",
-      "_command_example": "command: 'pi'",
-      "command": null,
-
-      "_args_comment": "Array of arguments to pass to the command",
-      "_args_example": "args: ['--project', '${projectName}', '--issues', '${issueCount}']",
-      "_args_placeholders": "Available placeholders: ${projectName}, ${projectId}, ${sessionId}, ${issueCount}",
-      "args": [],
-
-      "prefix": "pi_project_"
+  "mode": "rpc",
+  "rpc": {
+    "timeoutMs": 120000,
+    "restartCooldownSec": 60,
+    "piCommand": "pi",
+    "piArgs": [],
+    "provider": "cerebras",
+    "model": "zai-glm-4.7",
+    "workspaceRoot": "~/dvl",
+    "projectDirOverrides": {
+      "pi-linear-test-repo": "pi-linear-test-repo",
+      "some-linear-project-name": "different-folder-name",
+      "97ec7cae-e252-493d-94d3-6910aa28cacf": "pi-linear-test-repo"
+    }
+  },
+  "legacy": {
+    "sessionManager": {
+      "type": "tmux",
+      "tmux": {
+        "prefix": "pi_project_"
+      },
+      "process": {
+        "command": "node",
+        "args": ["/path/to/your-runner.js"],
+        "prefix": "pi_project_"
+      }
     }
   }
 }

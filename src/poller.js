@@ -6,6 +6,7 @@ import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
 import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
 import { createSessionManager, attemptKillUnhealthySession } from './session-manager.js';
+import { RpcSessionManager } from './rpc-session-manager.js';
 
 /**
  * Perform a single poll
@@ -101,19 +102,21 @@ async function performPoll(config, sessionManager) {
   }
 
   // INN-168: Check and kill unhealthy owned sessions
-  try {
-    const healthCheckResult = await checkAndKillUnhealthySessions(config, sessionManager);
-    metrics.sessionsChecked = healthCheckResult.sessionsChecked;
-    metrics.unhealthyDetected = healthCheckResult.unhealthyDetected;
-    metrics.sessionsKilled = healthCheckResult.killed;
-    info('Health check completed', healthCheckResult);
-  } catch (err) {
-    logError('Failed to check/kill unhealthy sessions', {
-      error: err?.message || String(err),
-    });
-    metrics.errors.push('Failed to check/kill unhealthy sessions');
+  // RPC mode: handled via RPC timeouts + abort/restart, skip legacy health checks.
+  if ((config.mode || 'rpc') !== 'rpc') {
+    try {
+      const healthCheckResult = await checkAndKillUnhealthySessions(config, sessionManager);
+      metrics.sessionsChecked = healthCheckResult.sessionsChecked;
+      metrics.unhealthyDetected = healthCheckResult.unhealthyDetected;
+      metrics.sessionsKilled = healthCheckResult.killed;
+      info('Health check completed', healthCheckResult);
+    } catch (err) {
+      logError('Failed to check/kill unhealthy sessions', {
+        error: err?.message || String(err),
+      });
+      metrics.errors.push('Failed to check/kill unhealthy sessions');
+    }
   }
-
   // Poll completed - log summary with all metrics
   const pollEndTimestamp = Date.now();
   const pollDurationMs = pollEndTimestamp - pollStartTimestamp;
@@ -139,15 +142,19 @@ async function performPoll(config, sessionManager) {
  * @param {Object} config - Configuration object
  * @returns {boolean} True if project should have a session
  */
-function shouldProcessProject(projectId, config) {
+function shouldProcessProject(projectId, projectName, config) {
+  const filter = config.projectFilter || [];
+  const blacklist = config.projectBlacklist || [];
+
   // Whitelist: only allow projects in PROJECT_FILTER
-  if (config.projectFilter && config.projectFilter.length > 0) {
-    return config.projectFilter.includes(projectId);
+  // Accept either projectId (UUID) or projectName (human friendly) for convenience.
+  if (filter.length > 0) {
+    return filter.includes(projectId) || (projectName ? filter.includes(projectName) : false);
   }
 
   // Blacklist: exclude projects in PROJECT_BLACKLIST
-  if (config.projectBlacklist && config.projectBlacklist.length > 0) {
-    return !config.projectBlacklist.includes(projectId);
+  if (blacklist.length > 0) {
+    return !(blacklist.includes(projectId) || (projectName ? blacklist.includes(projectName) : false));
   }
 
   // No filters: process all projects
@@ -167,8 +174,72 @@ async function createSessionsForProjects(byProject, config, sessionManager) {
   let createdCount = 0;
   let filteredCount = 0;
 
+  // RPC mode: ensure RPC sessions and (optionally) prompt one issue if idle.
+  if ((config.mode || 'rpc') === 'rpc') {
+    /** @type {RpcSessionManager} */
+    const rpcManager = sessionManager;
+
+    for (const [projectId, projectData] of byProject) {
+      if (!shouldProcessProject(projectId, projectData.projectName, config)) {
+        filteredCount++;
+        debug('Project filtered out', {
+          projectId,
+          projectName: projectData.projectName,
+          reason: 'Matches filter criteria',
+        });
+        continue;
+      }
+
+      const sessionName = `${config.tmuxPrefix}${projectId}`;
+      const ensure = await rpcManager.ensureSession(sessionName, { projectName: projectData.projectName, projectId });
+      if (ensure.error) {
+        warn('RPC session ensure failed', { sessionName, projectId, error: ensure.error?.message || String(ensure.error) });
+        // ensureSession already records cooldown on init failure
+        continue;
+      }
+      if (ensure.created) createdCount++;
+      if (ensure.skipped) {
+        debug('RPC session ensure skipped', { sessionName, reason: ensure.reason });
+        continue;
+      }
+
+      // One-at-a-time policy: only prompt when idle, and only one issue.
+      const firstIssue = projectData.issues?.[0];
+      if (!firstIssue) continue;
+
+      const promptMsg = `You are working on Linear project: ${projectData.projectName} (id=${projectId}).\n` +
+        `If a local git clone exists at ../${projectData.projectName}, use it as your working directory.\n` +
+        `Work on this issue now: ${firstIssue.title} (issueId=${firstIssue.id}).\n` +
+        `Use your Linear tools to update the issue state to Done when finished.`;
+
+      const prompted = await rpcManager.promptIfIdle(sessionName, promptMsg);
+      if (prompted.ok === false) {
+        warn('RPC prompt attempt failed', { sessionName, projectId, reason: prompted.reason });
+        // Timeout or other RPC errors: abort -> cooldown -> restart
+        await rpcManager.abortAndRestart(sessionName, prompted.reason || 'prompt failed');
+        continue;
+      }
+
+      if (prompted.prompted) {
+        info('Sent prompt to RPC session', { sessionName, projectId, issueId: firstIssue.id });
+      } else {
+        debug('Did not prompt (not idle / not running)', { sessionName, reason: prompted.reason });
+      }
+    }
+
+    if (filteredCount > 0) {
+      info('Projects filtered', {
+        filtered: filteredCount,
+        processed: byProject.size - filteredCount,
+      });
+    }
+
+    return createdCount;
+  }
+
+  // Legacy mode: original behavior (ensure sessions only)
   for (const [projectId, projectData] of byProject) {
-    if (!shouldProcessProject(projectId, config)) {
+    if (!shouldProcessProject(projectId, projectData.projectName, config)) {
       filteredCount++;
       debug('Project filtered out', {
         projectId,
@@ -284,10 +355,25 @@ export async function startPollLoop(config) {
   setLogLevel(config.logLevel);
 
   // Create session manager based on configuration
-  const sessionManager = await createSessionManager(config);
+  const sessionManager = (config.mode || 'rpc') === 'rpc'
+    ? new RpcSessionManager({
+        prefix: config.tmuxPrefix,
+        timeoutMs: config.rpc?.timeoutMs ?? 120000,
+        restartCooldownSec: config.rpc?.restartCooldownSec ?? config.sessionRestartCooldownSec,
+        piCommand: config.rpc?.piCommand || 'pi',
+        piArgs: [
+          ...(config.rpc?.piArgs || []),
+          ...(config.rpc?.provider ? ['--provider', config.rpc.provider] : []),
+          ...(config.rpc?.model ? ['--model', config.rpc.model] : []),
+        ],
+        workspaceRoot: config.rpc?.workspaceRoot || null,
+        projectDirOverrides: config.rpc?.projectDirOverrides || {},
+      })
+    : await createSessionManager(config);
 
   info('Session manager initialized', {
-    type: config.sessionManager?.type || 'tmux',
+    mode: config.mode || 'rpc',
+    type: (config.mode || 'rpc') === 'rpc' ? 'rpc' : (config.sessionManager?.type || 'tmux'),
   });
 
   if (config.dryRun) {
@@ -297,6 +383,7 @@ export async function startPollLoop(config) {
   info('Starting poll loop...', {
     pollIntervalSec: config.pollIntervalSec,
     tmuxPrefix: config.tmuxPrefix,
+    mode: config.mode || 'rpc',
     dryRun: config.dryRun,
   });
 

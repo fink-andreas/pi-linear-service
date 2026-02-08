@@ -157,11 +157,13 @@ export async function attemptKillUnhealthySession(sessionName, prefix, config, s
   });
 
   const killed = await sessionManager.killSession(sessionName, dryRun);
+
+  // Record attempt regardless of outcome to avoid kill loops/spam.
+  if (!dryRun && sessionManager.recordKillAttempt) {
+    sessionManager.recordKillAttempt(sessionName);
+  }
+
   if (killed) {
-    // Only record kill attempt if not in dry-run mode and session manager supports cooldown
-    if (!dryRun && sessionManager.recordKillAttempt) {
-      sessionManager.recordKillAttempt(sessionName);
-    }
     info('Unhealthy session killed', {
       sessionName,
     });
@@ -169,16 +171,16 @@ export async function attemptKillUnhealthySession(sessionName, prefix, config, s
       killed: true,
       reason: dryRun ? 'Session would be killed (dry-run)' : 'Session killed successfully',
     };
-  } else {
-    const { error: logError } = await import('./logger.js');
-    logError('Failed to kill unhealthy session', {
-      sessionName,
-    });
-    return {
-      killed: false,
-      reason: 'Failed to kill session',
-    };
   }
+
+  const { error: logError } = await import('./logger.js');
+  logError('Failed to kill unhealthy session', {
+    sessionName,
+  });
+  return {
+    killed: false,
+    reason: 'Failed to kill session',
+  };
 }
 
 /**

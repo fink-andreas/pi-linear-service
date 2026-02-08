@@ -210,10 +210,12 @@ export function groupIssuesByProject(issues) {
     const existing = map.get(projectId);
     if (existing) {
       existing.issueCount += 1;
+      existing.issues.push(issue);
     } else {
       map.set(projectId, {
         projectName: project?.name,
         issueCount: 1,
+        issues: [issue],
       });
     }
   }

@@ -215,11 +215,13 @@ export async function listPanes(sessionName) {
  * @returns {Promise<HealthCheckResult>}
  */
 export async function checkSessionHealth(sessionName, healthMode) {
-  // If health mode is 'none', always return healthy
+  // If health mode is 'none', always return healthy.
+  // Still report whether the session exists (best-effort) for observability.
   if (healthMode === 'none') {
+    const exists = await hasSession(sessionName);
     return {
       healthy: true,
-      exists: true,
+      exists,
       paneCount: 0,
       hasDeadPanes: false,
       panes: [],
@@ -462,11 +464,13 @@ export async function attemptKillUnhealthySession(sessionName, prefix, config, d
   });
 
   const killed = await killSession(sessionName, dryRun);
+
+  // Record attempt regardless of outcome to avoid kill loops/spam.
+  if (!dryRun) {
+    recordKillAttempt(sessionName);
+  }
+
   if (killed) {
-    // Only record kill attempt if not in dry-run mode
-    if (!dryRun) {
-      recordKillAttempt(sessionName);
-    }
     info('Unhealthy session killed', {
       sessionName,
     });
@@ -474,13 +478,13 @@ export async function attemptKillUnhealthySession(sessionName, prefix, config, d
       killed: true,
       reason: dryRun ? 'Session would be killed (dry-run)' : 'Session killed successfully',
     };
-  } else {
-    logError('Failed to kill unhealthy session', {
-      sessionName,
-    });
-    return {
-      killed: false,
-      reason: 'Failed to kill session',
-    };
   }
+
+  logError('Failed to kill unhealthy session', {
+    sessionName,
+  });
+  return {
+    killed: false,
+    reason: 'Failed to kill session',
+  };
 }

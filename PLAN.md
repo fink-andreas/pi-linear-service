@@ -1,167 +1,98 @@
-# Plan: Configurable Session Manager
+# PLAN - INN-181: RPC mode for pi process handling (per Linear project)
 
 ## Goal
-Extend pi-linear-service to support configurable session managers instead of being hardcoded to use tmux. The service should be able to run any command with configurable arguments and maintain control of the process until it exits.
+Switch `pi-linear-service` from one-shot `pi -p ...` execution to a **persistent** `pi --mode rpc` process per Linear project, controlled via **NDJSON RPC** over stdin/stdout.
 
-## Requirements
-1. Read configuration from `~/.pi/agent/extensions/pi-linear-service/settings.json`
-2. Support replacing tmux with any command
-3. Keep control of the command process - no duplicate processes should start until it exits
-4. Maintain backward compatibility with tmux as default
+Key constraints from issue discussion:
+- One persistent pi process **per Linear project**.
+- **tmux is disallowed** in RPC mode; only process manager.
+- No automatic "Done" detection needed. The agent will set the Linear issue state to Done via Linear tools.
+- Polling behavior: **one issue at a time per project** (no queueing multiple issues).
+- Timeout: default **120 seconds**. On timeout: send `abort` → cooldown → restart.
+- RPC should be the **default** behavior; legacy remains optional. No mixed mode.
+- Logging: use existing logger; no extra event log persistence.
+- Design should allow later extension to detect "agent has a question" (hook point).
 
-## Current State Analysis
+## Repository exploration (current pi-linear-service)
 
-### Existing Architecture
-- `src/tmux.js`: Handles all tmux operations (create, kill, list, health check)
-- `src/poller.js`: Uses tmux.js to manage sessions
-- `src/config.js`: Loads environment variables only
+Top-level:
+- `index.js`: service entry
+- `src/config.js`: env + settings loader, config summary
+- `src/poller.js`: polling loop, creates sessions
+- `src/session-manager.js`: abstraction used by poller
+- `src/process-manager.js`: in-memory process tracking
+- `src/tmux-manager.js`: tmux implementation (legacy)
+- `src/health.js`: health/cooldown logic
+- tests: various session + health behaviors
 
-### Key Functions in tmux.js
-- `execTmux()` - Execute tmux commands via child_process.spawn
-- `hasSession()` - Check if session exists
-- `createSession()` - Create a new detached tmux session
-- `killSession()` - Kill a tmux session
-- `listSessions()` - List all tmux sessions
-- `listPanes()` - Get session pane information
-- `checkSessionHealth()` - Health check on session
-- `isOwnedSession()` - Check ownership via session name pattern
-- `attemptKillUnhealthySession()` - Kill unhealthy sessions with cooldown
+## pi RPC protocol (from ../pi-mono)
+Source of truth:
+- `../pi-mono/packages/coding-agent/src/modes/rpc/rpc-types.ts`
 
-## Proposed Architecture
+Important: this is **not JSON-RPC 2.0**. It is newline-delimited JSON commands and responses/events.
 
-### Settings JSON Schema
-```json
-{
-  "sessionManager": {
-    "type": "tmux" | "process",
-    "tmux": {
-      "prefix": "pi_project_"
-    },
-    "process": {
-      "command": "/path/to/command",
-      "args": ["--flag1", "value1"],
-      "prefix": "pi_project_"
-    }
-  }
-}
-```
+Commands (stdin): objects with `type`, optional `id`.
+Responses/events (stdout): objects with `type` (e.g. `response`, `extension_ui_request`, etc.).
 
-### New Module Structure
-```
-src/
-├── config.js           - Environment variables loader (existing)
-├── settings.js         - NEW: settings.json loader
-├── session-manager.js  - NEW: Abstract interface for session management
-├── tmux-manager.js     - NEW: Tmux implementation of session manager
-├── process-manager.js  - NEW: Generic process implementation
-└── poller.js           - Updated to use session-manager
-```
+Commands we need initially:
+- `{ type: "new_session", id? }`
+- `{ type: "prompt", message, id? }`
+- `{ type: "get_state", id? }`
+- `{ type: "abort", id? }`
 
-### Session Manager Interface
-```javascript
-// Abstract interface that all session managers must implement
-class SessionManager {
-  async hasSession(sessionName) { }
-  async createSession(sessionName, command, dryRun) { }
-  async killSession(sessionName, dryRun) { }
-  async listSessions() { }
-  async checkSessionHealth(sessionName, healthMode) { }
-  isOwnedSession(sessionName, prefix) { }
-}
-```
+Future hook for "agent has a question":
+- stdout events include `{ type: "extension_ui_request", ... }` which indicates an extension needs user input.
 
-### Process Manager Implementation
-The process manager will:
-1. Track running processes in memory (`Map<sessionName, ChildProcess>`)
-2. Use `child_process.spawn` to start commands
-3. Monitor process status via `spawn().on('exit')` events
-4. Support cleanup of zombie processes
-5. Health check based on process running status
+## Proposed design
 
-### Session Manager Factory
-```javascript
-function createSessionManager(settings) {
-  switch (settings.sessionManager.type) {
-    case 'tmux':
-      return new TmuxSessionManager(settings.sessionManager.tmux);
-    case 'process':
-      return new ProcessSessionManager(settings.sessionManager.process);
-    default:
-      return new TmuxSessionManager({}); // Default fallback
-  }
-}
-```
+### High-level flow (per project)
+- Ensure an RPC session exists for the project:
+  - spawn `pi --mode rpc` (process manager)
+  - send `new_session`
+- When an issue is eligible to be processed for a project:
+  - if project session is *idle* (not streaming, no pending messages): send `prompt` for that issue
+  - else: do nothing (one-at-a-time policy)
+- Health monitoring:
+  - periodically call `get_state` for each project session
+  - if a command call exceeds `RPC_TIMEOUT_MS` (default 120s) or process is dead:
+    - send `abort`
+    - apply cooldown
+    - kill process
+    - restart (next poll)
 
-## Implementation Steps
+### Modules / files
+- NEW `src/pi-rpc.js`:
+  - spawn helper + NDJSON encoder/decoder
+  - request/response correlation by `id`
+  - timeout handling
+  - event emitter for non-response events (e.g. `extension_ui_request`)
+- Update `src/process-manager.js` or create NEW `src/rpc-process-manager.js`:
+  - Manage ChildProcess + associated PiRpcClient per session
+  - Expose `getClient(sessionName)`
+- Update `src/poller.js`:
+  - default to RPC mode
+  - disallow tmux when RPC enabled
+  - integrate `get_state` / idle checks before sending prompt
+- Update `src/config.js`, `settings.json.example`, `.env.example?` (if exists):
+  - Add RPC mode settings:
+    - `pi.mode`: `rpc|legacy`
+    - `rpc.timeoutMs` default 120000
+- Update docs: `README.md` and `FUNCTIONALITY.md`
 
-### 1. Create settings.js module
-- Load `~/.pi/agent/extensions/pi-linear-service/settings.json`
-- Provide default settings if file doesn't exist
-- Validate settings schema
-- Export settings object
+### Idle definition
+A project session is considered idle when:
+- process alive
+- `get_state` returns `isStreaming === false` AND `pendingMessageCount === 0`
 
-### 2. Create session-manager.js abstract interface
-- Define the abstract SessionManager class/interface
-- Provide documentation for required methods
+### Extension point for questions
+- In `PiRpcClient`, surface `extension_ui_request` events via callback/hook.
+- Poller can later react (e.g. mark project as blocked, notify).
+- For now: log and mark session as "needsInput" in memory.
 
-### 3. Create tmux-manager.js
-- Move existing tmux.js logic into a new class
-- Implement SessionManager interface
-- Keep all existing health check logic
+## Acceptance checks (manual)
+- With required env vars set, `node index.js` starts.
+- Service spawns one `pi --mode rpc` per eligible Linear project.
+- Service sends `prompt` only when session is idle.
+- If `get_state` hangs >120s: service aborts, cools down, restarts session.
+- tmux mode rejected when rpc is enabled.
 
-### 4. Create process-manager.js
-- Implement SessionManager interface for generic processes
-- Process tracking with Map
-- Health check based on process status
-- Support for graceful process termination
-
-### 5. Update poller.js
-- Use session manager factory to get appropriate manager
-- Pass session manager instance to functions instead of importing tmux module directly
-- Keep all existing polling logic intact
-
-### 6. Update config.js
-- Add settings loader integration
-- Merge settings with environment variables
-- Provide backward compatibility (tmux by default if no settings)
-
-### 7. Update documentation
-- Document settings.json format
-- Provide example settings.json
-- Update README.md with new configuration options
-- Update FUNCTIONALITY.md
-
-### 8. Create example settings.json
-- Default configuration using tmux
-- Example configuration using a custom command
-
-## Backward Compatibility
-- If `settings.json` doesn't exist, default to tmux behavior
-- If `sessionManager.type` is not specified, default to "tmux"
-- All existing environment variables continue to work
-- Session naming conventions remain unchanged
-
-## Testing Considerations
-- Test with tmux manager (existing functionality)
-- Test with process manager (new functionality)
-- Test health checks for both managers
-- Test kill/restart for both managers
-- Test cooldown mechanism for both managers
-- Test missing settings.json (backward compatibility)
-
-## Files to Modify
-1. NEW: `src/settings.js` - Settings loader
-2. NEW: `src/session-manager.js` - Abstract interface
-3. NEW: `src/tmux-manager.js` - Tmux implementation
-4. NEW: `src/process-manager.js` - Process implementation
-5. MODIFY: `src/poller.js` - Use session manager factory
-6. MODIFY: `src/config.js` - Integrate settings
-7. MODIFY: `README.md` - Update documentation
-8. MODIFY: `FUNCTIONALITY.md` - Update docs
-9. NEW: `settings.json.example` - Example settings file
-
-## Non-Goals
-- Multi-process concurrency (one session per project only)
-- Cross-machine session management (local only)
-- Persistent process tracking (lost on service restart)
-- Remote command execution
