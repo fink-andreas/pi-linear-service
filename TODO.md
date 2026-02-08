@@ -6,4 +6,4 @@
 - [x] 2. Update `FUNCTIONALITY.md` to match current architecture (RPC mode default + legacy mode).
 - [x] 3. Update `package.json` description (no longer tmux-only).
 - [x] 4. Run tests (`node test-*.js` and `node test-pi-rpc-client.js`).
-- [>] 5. Commit, merge to main, push.
+- [x] 5. Commit, merge to main, push.
