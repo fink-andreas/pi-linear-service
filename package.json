@@ -1,7 +1,7 @@
 {
   "name": "pi-linear-service",
   "version": "1.0.0",
-  "description": "Node.js daemon that polls the Linear GraphQL API and manages per-project tmux sessions running a pi command",
+  "description": "Node.js daemon that polls Linear and runs pi per project (RPC mode by default)",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
