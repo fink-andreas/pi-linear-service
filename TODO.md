@@ -1,7 +1,6 @@
-# TODO - INN-204 packaging E2E tests
+# TODO - INN-205 documentation refresh
 
-- [x] Add automated package manifest/resource discovery test
-- [x] Add automated pi install/remove smoke test for global and local scope
-- [x] Add verification plan documenting automated vs manual checks and expected outputs
-- [x] Link packaging verification plan from README
+- [x] Update README with quickstart, install flows, full example, migration notes, and troubleshooting
+- [x] Update FUNCTIONALITY.md with final Phase 2 architecture and control-plane responsibilities
+- [x] Validate docs against actual command surface and behavior
 - [x] Run verification (`npm test` and `LINEAR_API_KEY=test ASSIGNEE_ID=test node index.js`)

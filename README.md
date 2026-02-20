@@ -4,125 +4,195 @@ A Node.js daemon that polls the Linear GraphQL API and runs the **pi** coding ag
 
 Default behavior is **RPC mode**: one persistent `pi --mode rpc` process per project, driven via NDJSON RPC over stdin/stdout.
 
+## Quickstart (fast happy path)
+
+### 1) Install as a pi package (global)
+```bash
+pi install git:github.com/fink-andreas/pi-linear-service
+```
+
+### 2) Enable extension resource
+```bash
+pi config
+```
+Enable the `pi-linear-service` extension.
+
+### 3) Configure required env for the daemon
+```bash
+export LINEAR_API_KEY="lin_xxx"
+export ASSIGNEE_ID="<your-linear-user-id-or-slug>"
+```
+
+### 4) Open pi and run guided setup
+```text
+/linear-daemon-setup
+```
+Provide project id + repo path (absolute path required), then confirm success.
+
+### 5) Start daemon service
+```text
+/linear-daemon-start
+```
+
+### 6) Confirm status
+```text
+/linear-daemon-status --project-id <project-id>
+```
+
+---
+
 ## Features
 
 - **RPC mode (default):** persistent `pi --mode rpc` per Linear project
 - **One-at-a-time prompting:** only sends a new prompt when the project session is idle
-- **Repo-aware execution:** start `pi` in the right repo directory via `rpc.workspaceRoot` + optional overrides
+- **Repo-aware execution:** start `pi` in the right repo directory via explicit project mapping
 - **Model/provider selection:** pass `--provider/--model` to `pi`
-- **npm package + CLI:** install as `@fink-andreas/pi-linear-service` and run via `pi-linear-service`
+- **pi-native extension commands:** setup/reconfigure/status/lifecycle inside pi
 - **systemd user service support:** install/uninstall/status commands for background operation
 - **Timeout + recovery:** abort + cooldown + restart if RPC calls hang (default 120s)
 - **Graceful shutdown:** handles `SIGINT`/`SIGTERM`, stops polling, and cleans up managed sessions
 
-## Install
+## Install flows (global and local)
 
-```bash
-npm i @fink-andreas/pi-linear-service
-```
-
-After install, a **best-effort postinstall** attempts to set up the user systemd service.
-If that fails (common in CI/headless shells), run setup manually:
-
-```bash
-npx pi-linear-service service install
-```
-
-To disable postinstall auto-attempt:
-
-```bash
-SKIP_PI_LINEAR_POSTINSTALL=1 npm i @fink-andreas/pi-linear-service
-```
-
-## Install via `pi install`
-
-Global install from git:
-
+### Global install
 ```bash
 pi install git:github.com/fink-andreas/pi-linear-service
 pi list
 ```
 
-Project-local install (writes to `.pi/settings.json` in current repo):
-
+### Project-local install
+Run in your target repository:
 ```bash
 pi install git:github.com/fink-andreas/pi-linear-service -l
 pi list
 ```
 
-After install, open `pi config` (global or local scope) to enable/disable the packaged extension resource.
+After install, run `pi config` in the same scope (global or local) to enable/disable packaged resources.
 
-## Interactive flows inside pi
+## Full example: install -> configured -> active monitoring
 
-Once the packaged extension is enabled, run these slash commands directly in pi.
-
-### Setup daemon flow
-1. Run `/linear-daemon-setup`
-2. Fill prompts for:
-   - Linear project ID
+1. Install package globally:
+   ```bash
+   pi install git:github.com/fink-andreas/pi-linear-service
+   ```
+2. Enable extension in `pi config`.
+3. Ensure Linux user-systemd is available:
+   ```bash
+   systemctl --user status
+   ```
+4. Export daemon env:
+   ```bash
+   export LINEAR_API_KEY="lin_xxx"
+   export ASSIGNEE_ID="<your-assignee>"
+   ```
+5. Open `pi` and run:
+   ```text
+   /linear-daemon-setup
+   ```
+   Fill in:
+   - project id
    - optional project name
    - absolute repo path (required)
    - assignee mode (`me` or `all`)
-   - open states (comma-separated)
-   - optional runtime overrides (timeout/cooldown/provider/model)
-3. Confirm success notification (`Daemon setup succeeded`)
-4. Verify with `/linear-daemon-status --project-id <id>`
+   - open states
+   - optional runtime overrides
+6. Start daemon:
+   ```text
+   /linear-daemon-start
+   ```
+7. Check status:
+   ```text
+   /linear-daemon-status --project-id <project-id>
+   ```
+8. Reconfigure later if needed:
+   ```text
+   /linear-daemon-reconfigure
+   ```
+9. Stop/restart daemon when needed:
+   ```text
+   /linear-daemon-stop
+   /linear-daemon-restart
+   ```
 
-### Reconfigure flow
-1. Run `/linear-daemon-reconfigure`
-2. Enter the project ID to load existing config
-3. Update prompted fields (pre-filled from current config)
-4. Confirm success notification (`Daemon reconfigure succeeded`)
-5. Verify updated values with `/linear-daemon-status --project-id <id>`
+## In-pi extension commands
 
-Validation is performed before write/apply (for example: empty project ID, non-absolute/missing repo path, invalid numeric runtime values).
+- `/linear-daemon-setup`
+- `/linear-daemon-reconfigure`
+- `/linear-daemon-status --project-id <id>`
+- `/linear-daemon-disable --project-id <id>`
+- `/linear-daemon-start [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-help`
 
-## CLI usage
+## Legacy CLI-only path (still supported)
+
+You can still run purely via npm + shell commands:
 
 ```bash
-pi-linear-service start
-pi-linear-service service install [--working-dir <dir>] [--env-file <path>] [--unit-name <name>] [--node-path <path>] [--no-systemctl]
-pi-linear-service service uninstall [--unit-name <name>] [--no-systemctl]
-pi-linear-service service status [--unit-name <name>]
-
-# Hybrid extension control-plane (separate actions)
-pi-linear-service daemon setup --project-id <id> --repo-path <path> [--project-name <name>] [--open-states "Todo,In Progress"] [--assignee me|all]
-pi-linear-service daemon reconfigure --project-id <id> [--repo-path <path>] [--project-name <name>] [--open-states "Todo,In Progress"] [--assignee me|all]
-pi-linear-service daemon disable --project-id <id>
+npm i @fink-andreas/pi-linear-service
+pi-linear-service daemon setup --project-id <id> --repo-path <path> --open-states "Todo,In Progress"
+pi-linear-service daemon start
 pi-linear-service daemon status --project-id <id>
-pi-linear-service daemon start|stop|restart [--unit-name <name>]
 ```
 
-### Install service defaults (elaborated)
+CLI behavior remains backward compatible.
 
-`service install` infers defaults and also supports overrides:
+## Migration notes (npm-only -> pi-native)
 
-- `workingDir`: current working directory
-- `envFile`: `<workingDir>/.env`
-- `unitName`: `pi-linear-service.service`
-- `nodePath`: current `process.execPath`
+If you previously used npm-only installation:
 
-Use explicit flags when your runtime paths differ.
+1. Keep existing `settings.json` and `.env` (no schema reset required).
+2. Install package with `pi install` (global or local).
+3. Enable extension via `pi config`.
+4. Continue using existing project configs, or run `/linear-daemon-reconfigure` to update interactively.
+5. Optionally keep using CLI commands; both paths share the same underlying daemon control logic.
 
-## Background service (systemd user)
+## Linux/systemd prerequisites
 
-Default unit location:
+- Linux host with user systemd available (`systemctl --user`)
+- Node.js >= 18
+- `pi` installed and available on PATH
+- Valid `LINEAR_API_KEY` and `ASSIGNEE_ID`
 
-- `~/.config/systemd/user/pi-linear-service.service`
+## Troubleshooting
 
-`service install` performs:
+### 1) Missing Linear credentials
+Symptoms:
+- startup fails with missing env vars
+- or API 401 errors during polling
 
-- writes/updates unit file
-- `systemctl --user daemon-reload`
-- `systemctl --user enable --now <unit>`
+Fix:
+```bash
+export LINEAR_API_KEY="lin_xxx"
+export ASSIGNEE_ID="<your-id>"
+```
+Then restart daemon (`/linear-daemon-restart` or `pi-linear-service daemon restart`).
 
-`service uninstall` performs:
+### 2) Invalid repo mapping
+Symptoms:
+- setup/reconfigure fails with repo-path validation
+- status/setup logs show mapping errors
 
-- `systemctl --user disable --now <unit>`
-- remove unit file
-- `systemctl --user daemon-reload`
+Fix:
+- use an **absolute** path for `repo.path`
+- ensure the path exists on disk
+- re-run `/linear-daemon-setup` or `/linear-daemon-reconfigure`
 
-A static `pi-linear.service` file is still included in the package as reference/fallback documentation.
+### 3) Service not active
+Symptoms:
+- `/linear-daemon-status` shows inactive service
+
+Fix:
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now pi-linear-service.service
+systemctl --user status pi-linear-service.service --no-pager
+```
+Or from pi:
+```text
+/linear-daemon-start
+```
 
 ## App configuration
 
@@ -138,7 +208,7 @@ A static `pi-linear.service` file is still included in the package as reference/
 - `PROJECT_BLACKLIST` (comma-separated; matches project name or id)
 
 ### RPC mode vars
-- `PI_LINEAR_MODE` = `rpc` (default) or `legacy` (invalid values fail fast at startup)
+- `PI_LINEAR_MODE` = `rpc` (default) or `legacy`
 - `RPC_TIMEOUT_MS` (default `120000`)
 - `RPC_WORKSPACE_ROOT` (e.g. `~/dvl`)
 - `RPC_PROVIDER` (passed as `pi --provider <value>`)
@@ -161,39 +231,13 @@ Hybrid project-scoped model:
 - explicit repo mapping is required per project (`projects.<id>.repo.path`)
 - no implicit project-name directory fallback in strict project-scoped mode
 
-Example:
-
-```json
-{
-  "schemaVersion": 2,
-  "mode": "rpc",
-  "projects": {
-    "97ec7cae-e252-493d-94d3-6910aa28cacf": {
-      "enabled": true,
-      "projectName": "pi-linear-test-repo",
-      "scope": {
-        "assignee": "me",
-        "openStates": ["Todo", "In Progress"]
-      },
-      "repo": {
-        "path": "/home/afi/dvl/pi-linear-test-repo"
-      },
-      "runtime": {
-        "timeoutMs": 120000,
-        "restartCooldownSec": 60
-      }
-    }
-  }
-}
-```
-
 ## Testing
 
 ```bash
 npm test
 ```
 
-Runs baseline deterministic checks (including package manifest validation and `pi install` smoke checks in isolated temp dirs).
+Runs deterministic checks (including package manifest validation and `pi install` smoke checks in isolated temp dirs).
 
 For full packaging verification (automated + manual checklist), see:
 - `PACKAGING_TEST_PLAN.md`

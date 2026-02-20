@@ -2,161 +2,132 @@
 
 ## Overview
 
-`pi-linear-service` is a Node.js daemon that polls the Linear GraphQL API for issues assigned to a configured user and runs the **pi** coding agent per Linear project.
+`pi-linear-service` is a Node.js daemon that polls the Linear GraphQL API for issues and runs the **pi** coding agent per Linear project.
 
-The service supports two modes:
+Phase 2 adds a **pi-native extension control plane** so daemon setup, reconfigure, status, and lifecycle operations can be handled directly from inside pi.
 
-- **RPC mode (default)**: one persistent `pi --mode rpc` process per Linear project, controlled via NDJSON RPC over stdin/stdout.
-- **Legacy mode**: the previous tmux/process session-manager mechanism.
+The service supports two runtime modes:
 
-## Current default: RPC mode
+- **RPC mode (default)**: one persistent `pi --mode rpc` process per Linear project, controlled via NDJSON RPC.
+- **Legacy mode**: tmux/process session manager compatibility path.
 
-### High-level behavior
+## Phase 2 architecture
 
-For every poll:
+### Components
 
-1. Run a Linear smoke query (viewer)
-2. Build effective scope from project configs (`settings.projects`) when configured
-3. Fetch issues using effective scope (assignee mode + open states)
-4. Apply per-project scope filtering (enabled flag, assignee mode, open states)
-5. Group qualifying issues by Linear project
-6. For each project (respecting filter/blacklist):
-   - ensure there is a running `pi --mode rpc` process for that project
-   - if the project session is **idle**, send a prompt for the **first** qualifying issue (one-at-a-time)
+1. **Daemon runtime (polling + orchestration)**
+   - Polls Linear for scoped issues.
+   - Maintains per-project agent sessions.
+   - Enforces one-at-a-time prompting by idle-state checks.
 
-### “One-at-a-time” prompting
+2. **Settings model (project-scoped daemon config)**
+   - `settings.projects.<projectId>` is the source of truth per project.
+   - Explicit repo mapping is required (`repo.path`).
+   - One logical daemon config per project.
 
-A project session is considered **idle** when `get_state` returns:
+3. **Control plane (CLI + extension commands)**
+   - CLI command surface (`pi-linear-service daemon ...`) remains supported.
+   - Extension slash-command surface mirrors the same operations inside pi.
+   - Both paths delegate to the same control logic (`src/daemon-control.js`).
 
+### Extension responsibilities
+
+The packaged extension (`extensions/pi-linear-service.js`) provides:
+
+- interactive setup flow (`/linear-daemon-setup`)
+- interactive reconfigure flow (`/linear-daemon-reconfigure`)
+- status/disable commands
+- lifecycle start/stop/restart commands
+- validation feedback before write/apply
+
+Validation in extension flow includes:
+- required project ID
+- required explicit repo path
+- absolute + existing repo path
+- valid assignee mode (`me` or `all`)
+- non-empty open states
+- valid numeric runtime values
+
+## Command surface (Phase 2)
+
+### In-pi extension commands
+
+- `/linear-daemon-setup`
+- `/linear-daemon-reconfigure`
+- `/linear-daemon-status --project-id <id>`
+- `/linear-daemon-disable --project-id <id>`
+- `/linear-daemon-start [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
+- `/linear-daemon-help`
+
+### CLI control plane (backward compatible)
+
+- `pi-linear-service daemon setup ...`
+- `pi-linear-service daemon reconfigure ...`
+- `pi-linear-service daemon disable ...`
+- `pi-linear-service daemon status ...`
+- `pi-linear-service daemon start|stop|restart ...`
+
+## RPC runtime behavior (default)
+
+For each poll tick:
+
+1. Run Linear smoke query.
+2. Build effective project scope from `settings.projects`.
+3. Fetch issues using assignee/open-state scope.
+4. Apply per-project enable/scope filters.
+5. Group issues by project.
+6. For each project with qualifying issues:
+   - ensure project RPC session exists
+   - send prompt only if session is idle
+
+### One-at-a-time prompt gating
+
+A project is prompt-eligible only when:
 - `isStreaming === false`
 - `pendingMessageCount === 0`
 
-Only then the daemon will send a `prompt` for a new issue.
+### Timeout/recovery
 
-### Timeout + recovery
-
-Each RPC command uses a timeout (default: **120s** via `rpc.timeoutMs` / `RPC_TIMEOUT_MS`).
-
-If an RPC call fails or times out:
-
+Each RPC command has timeout (default `120000ms`). On failure/timeout:
 - send `abort`
-- record a restart attempt timestamp (cooldown)
-- kill the `pi` process
-- recreate on next poll after cooldown
+- enforce restart cooldown
+- kill process
+- recreate after cooldown
 
-Linear HTTP timeout/network failures are also surfaced with explicit errors (instead of generic runtime failures).
+## Repo mapping policy (final)
 
-### Repo working directory (cwd)
+Project-scoped mode enforces **explicit mapping**:
+- required: `projects.<projectId>.repo.path`
+- no project-name fallback in strict project-scoped flow
 
-Hybrid project-scoped mode uses explicit mapping per project:
+## Lifecycle and deployment
 
-- Configure `projects.<projectId>.repo.path` in settings.
-- This mapping is required for project-scoped daemon configs.
-- In strict project-scoped mode, the daemon will not fall back to project-name directory inference.
+Linux/systemd user service is the primary deployment target.
 
-Resolution order:
-1. `projects.<projectId>.repo.path` (explicit mapping)
-2. (legacy/non-strict only) `rpc.projectDirOverrides`
-3. (legacy/non-strict only) workspace fallback behavior
-
-### Provider/model selection
-
-If configured, the daemon starts pi as:
-
-- `pi --provider <provider> --model <model> --mode rpc`
-
-Config keys:
-- `rpc.provider` / env `RPC_PROVIDER`
-- `rpc.model` / env `RPC_MODEL`
-
-### Hybrid extension control-plane actions
-
-Separate actions are supported for UI integration:
-
-- `daemon setup` (create/update a project daemon config)
-- `daemon reconfigure` (change scope/runtime for existing project)
-- `daemon disable` (turn off a project daemon config)
-- `daemon status` (show project daemon config + service active state)
-- `daemon start|stop|restart` (service lifecycle controls)
-
-By default, setup/reconfigure applies runtime changes via controlled service restart.
-
-### Future extension point: agent questions
-
-Pi emits `extension_ui_request` events in RPC mode when extensions require user input.
-
-The daemon currently:
-- logs these events
-- tracks an in-memory `needsInput` flag per session
-
-This is the intended hook point for a future feature to detect and surface “agent has a question / needs input”.
-
-### Graceful shutdown behavior
-
-On `SIGINT` or `SIGTERM`, the daemon:
-- stops scheduling new poll ticks
-- waits briefly for an active poll to finish
-- runs session-manager cleanup (`shutdown`) when implemented (RPC/process managers)
-- logs shutdown completion and lets the process exit cleanly
+Service controls:
+- install/uninstall/status via `service` commands
+- start/stop/restart via `daemon` lifecycle commands
 
 ## Legacy mode
 
-Legacy mode uses the older session-manager abstraction:
-
-- tmux session manager (default in legacy)
+Legacy mode remains available for compatibility:
+- tmux session manager
 - process session manager
 
-In legacy mode the daemon:
-- creates a session per qualifying project
-- runs a one-shot command template (`SESSION_COMMAND_TEMPLATE`) inside that session
-- performs health checks via tmux pane inspection or process liveness
-
-Enable legacy mode via:
+Enable with:
 - `.env`: `PI_LINEAR_MODE=legacy`
-- or `settings.json`: `{"mode": "legacy", ...}`
+- or settings mode: `legacy`
 
-Mode is validated at startup; only `rpc` and `legacy` are accepted.
-
-## Configuration sources and precedence
-
-1. `.env` (environment) is loaded first and provides:
-   - Linear API key + assignee
-   - polling settings, open states
-   - filters/blacklists
-   - optional RPC overrides
-
-2. `settings.json` (optional) at:
-
-```
-~/.pi/agent/extensions/pi-linear-service/settings.json
-```
-
-Key hybrid fields:
-- `schemaVersion`
-- `projects` (map of projectId -> daemon config)
-
-Environment variables override relevant settings where supported.
-
-## Project filtering
-
-- `PROJECT_FILTER` / `config.projectFilter`: whitelist
-- `PROJECT_BLACKLIST` / `config.projectBlacklist`: blacklist
-
-Both accept either **projectId** or **projectName**.
-
-## Implementation modules (key files)
+## Key modules
 
 - `index.js`: boot + config summary + start poll loop
-- `src/config.js`: env parsing + loads settings.json
-- `src/settings.js`: settings.json schema/defaults/merge
-- `src/linear.js`: GraphQL client, fetch issues, group by project
-- `src/poller.js`: polling loop + per-project processing
-
-RPC mode:
-- `src/pi-rpc.js`: NDJSON RPC client for `pi --mode rpc`
-- `src/rpc-session-manager.js`: per-project pi process lifecycle, cwd resolution, abort/restart
-
-Legacy mode:
-- `src/session-manager.js`: session manager interface + factory
-- `src/tmux-manager.js`, `src/process-manager.js`
-- `src/tmux.js`: low-level tmux utilities
+- `src/config.js`: env parsing + settings integration
+- `src/settings.js`: schema/defaults/validation/migration
+- `src/linear.js`: GraphQL issue fetch/grouping
+- `src/poller.js`: polling loop and orchestration
+- `src/pi-rpc.js`: RPC client for `pi --mode rpc`
+- `src/rpc-session-manager.js`: per-project process/session lifecycle
+- `src/daemon-control.js`: shared control-plane logic (CLI + extension)
+- `extensions/pi-linear-service.js`: in-pi command UX + pre-write validation

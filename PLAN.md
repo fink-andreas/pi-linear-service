@@ -1,28 +1,31 @@
-# PLAN - INN-204 packaging E2E tests and verification
+# PLAN - INN-205 documentation refresh for pi-native flow
 
 ## Goal
-Provide automated + manual verification for `pi install` packaging flow and extension runtime integration.
+Refresh documentation for Phase 2 so new users can install via `pi install`, configure in-pi daemon setup/reconfigure flows, and understand migration from npm-only usage.
 
-## Scope mapping
-- Automated:
-  - package manifest/resource discovery assumptions
-  - install/remove smoke for global + local (`-l`) scopes in isolated temp dirs
-  - cleanup behavior validation in settings files
-- Manual:
-  - `pi list` / `pi config` visibility confirmation
-  - extension command visibility in fresh pi session
-  - systemd-dependent lifecycle checks
+## Required outcomes
+- README:
+  - global + local install copy/paste commands
+  - quickstart happy path
+  - full example from install -> active monitoring
+  - legacy CLI-only path vs pi-native path
+  - Linux/systemd prerequisites + troubleshooting
+- FUNCTIONALITY:
+  - extension architecture and control-plane responsibilities
+  - final command surface
+- migration notes for npm-only users
+- verification notes recorded in issue comment
 
-## Files to change
-- `test-package-manifest.js` (new)
-- `test-pi-install-smoke.js` (new)
-- `package.json` (include tests)
-- `PACKAGING_TEST_PLAN.md` (new command-by-command verification plan)
-- `README.md` (link to verification plan)
+## Files involved
+- `README.md`
+- `FUNCTIONALITY.md`
+- `PLAN.md`
+- `TODO.md`
 
 ## Implementation steps
-1. Add deterministic manifest/resource test.
-2. Add install/remove smoke test with isolated HOME and project dirs.
-3. Add test plan documenting exact commands and expected outcomes for global/local installs.
-4. Link verification plan from README.
-5. Run full tests and runtime check.
+1. Restructure README with quickstart + full end-to-end example.
+2. Add explicit migration section (npm-only to pi-native package flow).
+3. Add troubleshooting section with required cases.
+4. Update FUNCTIONALITY architecture/control-plane command surface details.
+5. Run docs sanity check (commands align with implemented CLI/extension behavior).
+6. Run test + runtime check and include clean-host style walkthrough notes in issue comment.
