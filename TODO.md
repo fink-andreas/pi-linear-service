@@ -1,6 +1,6 @@
-# TODO - INN-202 native pi extension commands
+# TODO - INN-203 interactive extension UI flow
 
-- [x] Implement slash command handlers in `extensions/pi-linear-service.js` wrapping daemon control functions
-- [x] Add command tests for registration, execution, prompts, and failure paths
-- [x] Update `npm test` script to include new extension command tests
+- [x] Implement guided interactive setup/reconfigure flows with defaults and validation in `extensions/pi-linear-service.js`
+- [x] Extend tests for interactive reconfigure and validation failures
+- [x] Update README with step list for setup and reconfigure UI flows
 - [x] Run verification (`npm test` and `LINEAR_API_KEY=test ASSIGNEE_ID=test node index.js`)

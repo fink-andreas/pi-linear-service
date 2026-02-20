@@ -57,6 +57,8 @@ async function testCommandRegistration() {
 
 async function testSetupAndStatusCommandPaths() {
   await withTempHome(async () => {
+    const repoPath = await mkdtemp(join(tmpdir(), 'pi-linear-ext-repo-'));
+
     const pi = createMockPi();
     extension(pi);
 
@@ -74,10 +76,10 @@ async function testSetupAndStatusCommandPaths() {
     };
 
     const projectId = 'proj-123';
-    await setup(`--project-id ${projectId} --repo-path /tmp/repo --open-states "Todo,In Progress" --no-systemctl`, ctx);
+    await setup(`--project-id ${projectId} --repo-path ${repoPath} --open-states "Todo,In Progress" --no-systemctl`, ctx);
 
     const settings = JSON.parse(await readFile(getSettingsPath(), 'utf-8'));
-    assert.equal(settings.projects[projectId].repo.path, '/tmp/repo');
+    assert.equal(settings.projects[projectId].repo.path, repoPath);
     assert.deepEqual(settings.projects[projectId].scope.openStates, ['Todo', 'In Progress']);
 
     await status(`--project-id ${projectId} --no-systemctl`, ctx);
@@ -89,21 +91,29 @@ async function testSetupAndStatusCommandPaths() {
   });
 }
 
-async function testInteractivePromptFallback() {
+async function testInteractiveSetupFlow() {
   await withTempHome(async () => {
+    const repoPath = await mkdtemp(join(tmpdir(), 'pi-linear-ext-interactive-repo-'));
+
     const pi = createMockPi();
     extension(pi);
 
     const setup = pi.commands.get('linear-daemon-setup').handler;
 
     const prompts = [];
-    const promptValues = ['proj-interactive', '/tmp/interactive-repo', 'Interactive Project'];
+    const promptValues = ['proj-interactive', 'Interactive Project', repoPath, 'Todo,In Progress'];
     const ctx = {
       hasUI: true,
       ui: {
         async input(label) {
           prompts.push(label);
           return promptValues.shift();
+        },
+        async select() {
+          return 'all';
+        },
+        async confirm() {
+          return false;
         },
         notify() {},
       },
@@ -113,9 +123,72 @@ async function testInteractivePromptFallback() {
 
     const settings = JSON.parse(await readFile(getSettingsPath(), 'utf-8'));
     assert.ok(settings.projects['proj-interactive']);
-    assert.equal(settings.projects['proj-interactive'].repo.path, '/tmp/interactive-repo');
-    assert.equal(prompts.length >= 2, true);
+    assert.equal(settings.projects['proj-interactive'].repo.path, repoPath);
+    assert.equal(settings.projects['proj-interactive'].scope.assignee, 'all');
+    assert.equal(prompts.length >= 3, true);
   });
+}
+
+async function testInteractiveReconfigureLoadsDefaultsAndUpdates() {
+  await withTempHome(async () => {
+    const repoA = await mkdtemp(join(tmpdir(), 'pi-linear-ext-reconf-a-'));
+    const repoB = await mkdtemp(join(tmpdir(), 'pi-linear-ext-reconf-b-'));
+
+    const pi = createMockPi();
+    extension(pi);
+
+    const setup = pi.commands.get('linear-daemon-setup').handler;
+    const reconfigure = pi.commands.get('linear-daemon-reconfigure').handler;
+
+    await setup(`--project-id proj-r --repo-path ${repoA} --open-states "Todo,In Progress" --no-systemctl`, { hasUI: false });
+
+    const placeholders = [];
+    const ctx = {
+      hasUI: true,
+      ui: {
+        async input(label, placeholder) {
+          placeholders.push({ label, placeholder });
+          if (label.includes('project ID')) return 'proj-r';
+          if (label.includes('Project name')) return 'Project R';
+          if (label.includes('Repository')) return repoB;
+          if (label.includes('Open states')) return 'Backlog,In Progress';
+          if (label.includes('Timeout')) return '60000';
+          if (label.includes('Restart cooldown')) return '90';
+          return '';
+        },
+        async select() {
+          return 'me';
+        },
+        async confirm(title) {
+          return title.includes('Runtime');
+        },
+        notify() {},
+      },
+    };
+
+    await reconfigure('--no-systemctl', ctx);
+
+    const settings = JSON.parse(await readFile(getSettingsPath(), 'utf-8'));
+    assert.equal(settings.projects['proj-r'].repo.path, repoB);
+    assert.deepEqual(settings.projects['proj-r'].scope.openStates, ['Backlog', 'In Progress']);
+    assert.equal(settings.projects['proj-r'].runtime.timeoutMs, 60000);
+    assert.equal(settings.projects['proj-r'].runtime.restartCooldownSec, 90);
+
+    const repoPrompt = placeholders.find((p) => p.label.includes('Repository absolute path'));
+    assert.equal(repoPrompt.placeholder, repoA);
+  });
+}
+
+async function testValidationFailureForMissingRepoPath() {
+  const pi = createMockPi();
+  extension(pi);
+
+  const setup = pi.commands.get('linear-daemon-setup').handler;
+
+  await assert.rejects(
+    () => setup('--project-id test-project --repo-path /does/not/exist --no-systemctl', { hasUI: false }),
+    /Configured repo path does not exist/
+  );
 }
 
 async function testFailurePathActionableMessage() {
@@ -148,7 +221,9 @@ async function testLifecycleCommandsNoSystemctl() {
 async function main() {
   await testCommandRegistration();
   await testSetupAndStatusCommandPaths();
-  await testInteractivePromptFallback();
+  await testInteractiveSetupFlow();
+  await testInteractiveReconfigureLoadsDefaultsAndUpdates();
+  await testValidationFailureForMissingRepoPath();
   await testFailurePathActionableMessage();
   await testLifecycleCommandsNoSystemctl();
   console.log('✓ test-extension-commands.js passed');

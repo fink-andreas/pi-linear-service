@@ -52,6 +52,31 @@ pi list -l
 
 After install, open `pi config` (global or local scope) to enable/disable the packaged extension resource.
 
+## Interactive flows inside pi
+
+Once the packaged extension is enabled, run these slash commands directly in pi.
+
+### Setup daemon flow
+1. Run `/linear-daemon-setup`
+2. Fill prompts for:
+   - Linear project ID
+   - optional project name
+   - absolute repo path (required)
+   - assignee mode (`me` or `all`)
+   - open states (comma-separated)
+   - optional runtime overrides (timeout/cooldown/provider/model)
+3. Confirm success notification (`Daemon setup succeeded`)
+4. Verify with `/linear-daemon-status --project-id <id>`
+
+### Reconfigure flow
+1. Run `/linear-daemon-reconfigure`
+2. Enter the project ID to load existing config
+3. Update prompted fields (pre-filled from current config)
+4. Confirm success notification (`Daemon reconfigure succeeded`)
+5. Verify updated values with `/linear-daemon-status --project-id <id>`
+
+Validation is performed before write/apply (for example: empty project ID, non-absolute/missing repo path, invalid numeric runtime values).
+
 ## CLI usage
 
 ```bash

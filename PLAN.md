@@ -1,31 +1,31 @@
-# PLAN - INN-202 native pi extension commands
+# PLAN - INN-203 interactive extension UI flow
 
 ## Goal
-Add native pi slash commands that wrap existing daemon control/service logic so users can configure and operate `pi-linear-service` from inside pi.
+Add guided in-pi interactive flows for daemon setup and reconfigure, while preserving existing command-line argument mode.
 
-## Issue requirements
-- Commands to add:
-  - `/linear-daemon-setup`
-  - `/linear-daemon-reconfigure`
-  - `/linear-daemon-status`
-  - `/linear-daemon-disable`
-  - `/linear-daemon-start`
-  - `/linear-daemon-stop`
-  - `/linear-daemon-restart`
-- Preserve current validation and one-project-daemon-config model.
-- Keep existing CLI behavior unchanged.
-- Support non-interactive args and interactive prompts where useful.
-- Provide clear success/failure notifications.
+## Requirements
+- Separate interactive actions for setup and reconfigure.
+- Collect fields in UI:
+  - project ID (+ optional project name)
+  - repo path (required)
+  - assignee (me|all)
+  - open states
+  - optional runtime fields (timeout, cooldown, provider, model)
+- Show validation feedback before persisting changes.
+- Keep one-project-per-flow behavior.
+- Trigger existing runtime apply path (daemon-control restart/reconfigure behavior).
+- Add manual verification steps documentation.
 
-## Affected files
-- `extensions/pi-linear-service.js` (implement command wrappers)
-- `test-*.js` (add extension command tests)
-- `package.json` (include new test in npm test script)
+## Files involved
+- `extensions/pi-linear-service.js`
+- `test-extension-commands.js`
+- `README.md` (step list for setup/reconfigure flow)
 
-## Implementation steps
-1. Implement reusable argument parsing in extension command handlers.
-2. Wrap existing daemon/service functions from `src/daemon-control.js`.
-3. Add interactive fallback prompts for missing required setup/reconfigure/status/disable values.
-4. Add success/error notifications and printable status output.
-5. Add tests for command registration, argument mode, interactive mode, and error paths.
-6. Run full test suite + runtime check.
+## Implementation outline
+1. Build interactive prompt helpers (input/select/confirm) with defaults.
+2. Add pre-write validation (required project id, repo path absolute+exists, assignee/open-state checks, numeric runtime checks).
+3. Enhance setup flow to gather full config interactively when flags are missing.
+4. Enhance reconfigure flow to load existing values and use them as prompt defaults.
+5. Extend tests for interactive setup/reconfigure and validation errors.
+6. Add README step list for both UI flows.
+7. Run full verification and reality check.
