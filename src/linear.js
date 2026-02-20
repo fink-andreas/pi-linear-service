@@ -290,7 +290,7 @@ async function queryIssueByIdentifier(apiKey, identifier) {
 }
 
 async function queryIssueById(apiKey, id) {
-  const query = `query IssueById($id: ID!) {
+  const query = `query IssueById($id: String!) {
     issue(id: $id) {
       id
       identifier
