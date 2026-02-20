@@ -13,6 +13,7 @@
   "files": [
     "bin/",
     "src/",
+    "extensions/",
     "index.js",
     "README.md",
     "FUNCTIONALITY.md",
@@ -31,10 +32,16 @@
   "keywords": [
     "linear",
     "pi",
+    "pi-package",
     "daemon",
     "rpc",
     "systemd"
   ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
   "license": "MIT",
   "author": "",
   "dependencies": {

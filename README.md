@@ -34,6 +34,24 @@ To disable postinstall auto-attempt:
 SKIP_PI_LINEAR_POSTINSTALL=1 npm i @fink-andreas/pi-linear-service
 ```
 
+## Install via `pi install`
+
+Global install from git:
+
+```bash
+pi install git:github.com/fink-andreas/pi-linear-service
+pi list
+```
+
+Project-local install (writes to `.pi/settings.json` in current repo):
+
+```bash
+pi install git:github.com/fink-andreas/pi-linear-service -l
+pi list -l
+```
+
+After install, open `pi config` (global or local scope) to enable/disable the packaged extension resource.
+
 ## CLI usage
 
 ```bash
