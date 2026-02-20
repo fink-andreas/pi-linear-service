@@ -328,7 +328,7 @@ export async function resolveIssue(apiKey, issue) {
   throw new Error(`Issue not found: ${lookup}`);
 }
 
-export async function getTeamWorkflowStates(apiKey, teamId) {
+export async function getTeamWorkflowStates(apiKey, teamRef) {
   const query = `query TeamWorkflowStates($teamId: String!) {
     team(id: $teamId) {
       states {
@@ -341,7 +341,7 @@ export async function getTeamWorkflowStates(apiKey, teamId) {
     }
   }`;
 
-  const data = await executeQuery(apiKey, query, { teamId }, { operationName: 'TeamWorkflowStates' });
+  const data = await executeQuery(apiKey, query, { teamId: teamRef }, { operationName: 'TeamWorkflowStates' });
   return data?.team?.states?.nodes || [];
 }
 
@@ -388,17 +388,17 @@ async function issueUpdateMutation(apiKey, issueId, input, operationName = 'Issu
 
 export async function prepareIssueStart(apiKey, issue) {
   const targetIssue = await resolveIssue(apiKey, issue);
-  const teamId = targetIssue?.team?.id;
-  if (!teamId) {
+  const teamRef = targetIssue?.team?.key || targetIssue?.team?.id;
+  if (!teamRef) {
     throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
   }
 
-  const states = await getTeamWorkflowStates(apiKey, teamId);
+  const states = await getTeamWorkflowStates(apiKey, teamRef);
   const started = states.find((s) => s.type === 'started')
     || states.find((s) => String(s.name || '').toLowerCase() === 'in progress');
 
   if (!started?.id) {
-    throw new Error(`Could not resolve a started workflow state for team ${teamId}`);
+    throw new Error(`Could not resolve a started workflow state for team ${teamRef}`);
   }
 
   return {
@@ -476,9 +476,9 @@ export async function updateIssue(apiKey, issue, patch = {}) {
   }
 
   if (patch.state !== undefined) {
-    const teamId = targetIssue?.team?.id;
-    if (!teamId) throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
-    const states = await getTeamWorkflowStates(apiKey, teamId);
+    const teamRef = targetIssue?.team?.key || targetIssue?.team?.id;
+    if (!teamRef) throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
+    const states = await getTeamWorkflowStates(apiKey, teamRef);
     nextPatch.stateId = resolveStateIdFromInput(states, patch.state);
   }
 
