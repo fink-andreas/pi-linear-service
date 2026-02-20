@@ -387,8 +387,78 @@ export async function startPollLoop(config) {
     dryRun: config.dryRun,
   });
 
-  // Track if a poll is currently running
+  // Track poll + shutdown state
   let isPolling = false;
+  let shutdownRequested = false;
+  let intervalId = null;
+
+  let resolveLoop;
+  const loopPromise = new Promise((resolve) => {
+    resolveLoop = resolve;
+  });
+
+  async function waitForPollingToComplete(timeoutMs = 5000) {
+    if (!isPolling) return true;
+
+    const started = Date.now();
+    while (isPolling && Date.now() - started < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    return !isPolling;
+  }
+
+  async function requestShutdown(signal) {
+    if (shutdownRequested) return;
+    shutdownRequested = true;
+
+    info('Shutdown requested', { signal });
+
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+
+    const pollFinished = await waitForPollingToComplete(5000);
+    if (!pollFinished) {
+      warn('Active poll did not finish before shutdown timeout', {
+        signal,
+        timeoutMs: 5000,
+      });
+    }
+
+    if (typeof sessionManager.shutdown === 'function') {
+      try {
+        await sessionManager.shutdown(signal);
+      } catch (err) {
+        logError('Session manager shutdown failed', {
+          signal,
+          error: err?.message || String(err),
+        });
+      }
+    }
+
+    process.off('SIGINT', onSigint);
+    process.off('SIGTERM', onSigterm);
+
+    info('Shutdown complete', { signal });
+    resolveLoop();
+  }
+
+  const onSigint = () => {
+    requestShutdown('SIGINT').catch((err) => {
+      logError('Shutdown handler failed', { signal: 'SIGINT', error: err?.message || String(err) });
+    });
+  };
+
+  const onSigterm = () => {
+    requestShutdown('SIGTERM').catch((err) => {
+      logError('Shutdown handler failed', { signal: 'SIGTERM', error: err?.message || String(err) });
+    });
+  };
+
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
 
   // Perform initial poll on startup
   info('Performing initial poll on startup');
@@ -403,11 +473,20 @@ export async function startPollLoop(config) {
     isPolling = false;
   }
 
+  if (shutdownRequested) {
+    info('Poll loop stopped before interval setup due to shutdown request');
+    return loopPromise;
+  }
+
   // Set up interval for polling
   const pollIntervalMs = config.pollIntervalSec * 1000;
 
   // Start the interval timer
-  const intervalId = setInterval(() => {
+  intervalId = setInterval(() => {
+    if (shutdownRequested) {
+      return;
+    }
+
     if (isPolling) {
       // Skip this tick if a poll is still running
       warn('Skipping poll tick - previous poll still in progress');
@@ -431,10 +510,6 @@ export async function startPollLoop(config) {
     pollIntervalMs,
   });
 
-  // Keep the process running (Node.js will exit if no timers are active)
-  // The interval timer will keep the process alive
-  return new Promise(() => {
-    // This promise never resolves, keeping the process running
-    // To stop the poll loop, clearInterval(intervalId) would be called
-  });
+  // Resolve only when shutdown is requested
+  return loopPromise;
 }

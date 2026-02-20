@@ -537,6 +537,30 @@ export class ProcessSessionManager extends SessionManager {
       return { created: false, existed: false, sessionName };
     }
   }
+
+  async shutdown(reason = 'shutdown') {
+    const sessions = await this.listSessions();
+    info('Shutting down process sessions', {
+      reason,
+      sessionCount: sessions.length,
+    });
+
+    for (const sessionName of sessions) {
+      try {
+        await this.killSession(sessionName);
+      } catch (err) {
+        warn('Failed to kill process session during shutdown', {
+          sessionName,
+          error: err?.message || String(err),
+        });
+      }
+    }
+
+    info('Process session shutdown complete', {
+      reason,
+      sessionCount: sessions.length,
+    });
+  }
 }
 
 /**

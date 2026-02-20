@@ -240,13 +240,23 @@ export async function loadConfig() {
   // Merge settings with environment (env takes precedence)
   const mergedSettings = mergeSettingsWithEnv(settings, envConfig);
 
+  // Validate effective mode (settings + env overrides)
+  const effectiveMode = mergedSettings.mode || 'rpc';
+  const validModes = ['rpc', 'legacy'];
+  if (!validModes.includes(effectiveMode)) {
+    throw new Error(
+      `Invalid PI_LINEAR_MODE: "${effectiveMode}". ` +
+      `Valid options: ${validModes.join(', ')}`
+    );
+  }
+
   // Determine effective prefix from legacy session manager config
   const legacyType = mergedSettings.legacy?.sessionManager?.type;
   const effectiveLegacyPrefix = mergedSettings.legacy?.sessionManager?.[legacyType]?.prefix || envConfig.tmuxPrefix;
 
   return {
     ...envConfig,
-    mode: mergedSettings.mode || 'rpc',
+    mode: effectiveMode,
     rpc: mergedSettings.rpc,
     legacy: mergedSettings.legacy,
 

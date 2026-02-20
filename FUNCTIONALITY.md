@@ -42,6 +42,8 @@ If an RPC call fails or times out:
 - kill the `pi` process
 - recreate on next poll after cooldown
 
+Linear HTTP timeout/network failures are also surfaced with explicit errors (instead of generic runtime failures).
+
 ### Repo working directory (cwd)
 
 To run `pi` inside the correct Git repo:
@@ -75,6 +77,14 @@ The daemon currently:
 
 This is the intended hook point for a future feature to detect and surface “agent has a question / needs input”.
 
+### Graceful shutdown behavior
+
+On `SIGINT` or `SIGTERM`, the daemon:
+- stops scheduling new poll ticks
+- waits briefly for an active poll to finish
+- runs session-manager cleanup (`shutdown`) when implemented (RPC/process managers)
+- logs shutdown completion and lets the process exit cleanly
+
 ## Legacy mode
 
 Legacy mode uses the older session-manager abstraction:
@@ -90,6 +100,8 @@ In legacy mode the daemon:
 Enable legacy mode via:
 - `.env`: `PI_LINEAR_MODE=legacy`
 - or `settings.json`: `{"mode": "legacy", ...}`
+
+Mode is validated at startup; only `rpc` and `legacy` are accepted.
 
 ## Configuration sources and precedence
 

@@ -44,8 +44,8 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
       queryFirstLine: query?.split('\n')?.[0],
     });
 
-    // Measure API latency
-    const { result: response, duration: fetchDuration } = await measureTimeAsync(async () => {
+    // Measure API latency and keep explicit failure details.
+    const fetchResult = await measureTimeAsync(async () => {
       return await fetch(LINEAR_GRAPHQL_URL, {
         method: 'POST',
         headers: {
@@ -61,6 +61,30 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
         signal: controller.signal,
       });
     });
+
+    const fetchDuration = fetchResult.duration;
+
+    if (!fetchResult.success) {
+      const fetchError = fetchResult.error;
+
+      if (fetchError?.name === 'AbortError') {
+        logError('Linear API request timed out', {
+          operationName,
+          timeoutMs,
+          durationMs: fetchDuration,
+        });
+        throw new Error(`Linear API request timed out after ${timeoutMs}ms`);
+      }
+
+      logError('Linear API request failed before receiving response', {
+        operationName,
+        durationMs: fetchDuration,
+        error: fetchError?.message || String(fetchError),
+      });
+      throw new Error(`Linear API request failed: ${fetchError?.message || String(fetchError)}`);
+    }
+
+    const response = fetchResult.result;
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '<failed to read response body>');
@@ -107,13 +131,6 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
       durationMs: fetchDuration,
     });
     return result.data;
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      logError('Linear API request timed out', { operationName, timeoutMs });
-      throw new Error(`Linear API request timed out after ${timeoutMs}ms`);
-    }
-
-    throw error;
   } finally {
     clearTimeout(timeout);
   }

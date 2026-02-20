@@ -243,6 +243,35 @@ export class RpcSessionManager {
     return true;
   }
 
+  async shutdown(reason = 'shutdown') {
+    const entries = Array.from(this.sessions.entries());
+    info('Shutting down RPC sessions', {
+      reason,
+      sessionCount: entries.length,
+    });
+
+    for (const [sessionName, entry] of entries) {
+      const client = entry?.client;
+      if (!client) continue;
+
+      if (client.isAlive()) {
+        try {
+          await client.abort();
+        } catch (err) {
+          // best-effort during shutdown
+        }
+        client.kill();
+      }
+
+      this.sessions.delete(sessionName);
+    }
+
+    info('RPC session shutdown complete', {
+      reason,
+      sessionCount: entries.length,
+    });
+  }
+
   listSessions() {
     return Array.from(this.sessions.keys());
   }

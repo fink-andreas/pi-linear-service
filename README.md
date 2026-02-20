@@ -10,130 +10,111 @@ Default behavior is **RPC mode**: one persistent `pi --mode rpc` process per pro
 - **One-at-a-time prompting:** only sends a new prompt when the project session is idle
 - **Repo-aware execution:** start `pi` in the right repo directory via `rpc.workspaceRoot` + optional overrides
 - **Model/provider selection:** pass `--provider/--model` to `pi`
-- **Error isolation:** Linear/API failures don’t crash the daemon
+- **npm package + CLI:** install as `@fink-andreas/pi-linear-service` and run via `pi-linear-service`
+- **systemd user service support:** install/uninstall/status commands for background operation
 - **Timeout + recovery:** abort + cooldown + restart if RPC calls hang (default 120s)
+- **Graceful shutdown:** handles `SIGINT`/`SIGTERM`, stops polling, and cleans up managed sessions
 
-## Quick start
-
-### 1) Install
-
-```bash
-npm install
-```
-
-### 2) Configure env
+## Install
 
 ```bash
-cp .env.example .env
-$EDITOR .env
+npm i @fink-andreas/pi-linear-service
 ```
 
-Required:
+After install, a **best-effort postinstall** attempts to set up the user systemd service.
+If that fails (common in CI/headless shells), run setup manually:
+
+```bash
+npx pi-linear-service service install
+```
+
+To disable postinstall auto-attempt:
+
+```bash
+SKIP_PI_LINEAR_POSTINSTALL=1 npm i @fink-andreas/pi-linear-service
+```
+
+## CLI usage
+
+```bash
+pi-linear-service start
+pi-linear-service service install [--working-dir <dir>] [--env-file <path>] [--unit-name <name>] [--node-path <path>] [--no-systemctl]
+pi-linear-service service uninstall [--unit-name <name>] [--no-systemctl]
+pi-linear-service service status [--unit-name <name>]
+```
+
+### Install service defaults (elaborated)
+
+`service install` infers defaults and also supports overrides:
+
+- `workingDir`: current working directory
+- `envFile`: `<workingDir>/.env`
+- `unitName`: `pi-linear-service.service`
+- `nodePath`: current `process.execPath`
+
+Use explicit flags when your runtime paths differ.
+
+## Background service (systemd user)
+
+Default unit location:
+
+- `~/.config/systemd/user/pi-linear-service.service`
+
+`service install` performs:
+
+- writes/updates unit file
+- `systemctl --user daemon-reload`
+- `systemctl --user enable --now <unit>`
+
+`service uninstall` performs:
+
+- `systemctl --user disable --now <unit>`
+- remove unit file
+- `systemctl --user daemon-reload`
+
+A static `pi-linear.service` file is still included in the package as reference/fallback documentation.
+
+## App configuration
+
+### Required environment vars
 - `LINEAR_API_KEY`
 - `ASSIGNEE_ID`
 
-### 3) (Recommended) Configure settings.json
-
-```bash
-mkdir -p ~/.pi/agent/extensions/pi-linear-service
-cp settings.json.example ~/.pi/agent/extensions/pi-linear-service/settings.json
-$EDITOR ~/.pi/agent/extensions/pi-linear-service/settings.json
-```
-
-### 4) Run
-
-```bash
-node index.js
-```
-
-## Configuration
-
-### Environment variables (.env)
-
-#### Required
-- `LINEAR_API_KEY`
-- `ASSIGNEE_ID`
-
-#### Polling / filtering
+### Polling / filtering
 - `POLL_INTERVAL_SEC`
 - `LINEAR_PAGE_LIMIT`
 - `LINEAR_OPEN_STATES` (e.g. `Todo,In Progress`)
-- `PROJECT_FILTER` (comma-separated; matches **project name or project id**)
-- `PROJECT_BLACKLIST` (comma-separated; matches **project name or project id**)
+- `PROJECT_FILTER` (comma-separated; matches project name or id)
+- `PROJECT_BLACKLIST` (comma-separated; matches project name or id)
 
-#### RPC mode toggles (optional)
-- `PI_LINEAR_MODE` = `rpc` (default) or `legacy`
+### RPC mode vars
+- `PI_LINEAR_MODE` = `rpc` (default) or `legacy` (invalid values fail fast at startup)
 - `RPC_TIMEOUT_MS` (default `120000`)
 - `RPC_WORKSPACE_ROOT` (e.g. `~/dvl`)
 - `RPC_PROVIDER` (passed as `pi --provider <value>`)
 - `RPC_MODEL` (passed as `pi --model <value>`)
 
-#### Legacy-only (when `PI_LINEAR_MODE=legacy`)
-- `TMUX_PREFIX`
-- `SESSION_COMMAND_TEMPLATE`
-- `SESSION_HEALTH_MODE`, `SESSION_KILL_ON_UNHEALTHY`, `SESSION_RESTART_COOLDOWN_SEC`
-
 ### settings.json
-
 Location:
 
-```
-~/.pi/agent/extensions/pi-linear-service/settings.json
-```
+`~/.pi/agent/extensions/pi-linear-service/settings.json`
 
-#### RPC mode config (default)
+Start from:
 
-Example:
-
-```json
-{
-  "mode": "rpc",
-  "rpc": {
-    "timeoutMs": 120000,
-    "restartCooldownSec": 60,
-
-    "piCommand": "pi",
-    "piArgs": [],
-
-    "provider": "cerebras",
-    "model": "zai-glm-4.7",
-
-    "workspaceRoot": "~/dvl",
-    "projectDirOverrides": {
-      "some-linear-project-name": "different-folder-name",
-      "97ec7cae-e252-493d-94d3-6910aa28cacf": "pi-linear-test-repo"
-    }
-  },
-  "legacy": {
-    "sessionManager": {
-      "type": "tmux",
-      "tmux": { "prefix": "pi_project_" },
-      "process": { "command": "node", "args": [], "prefix": "pi_project_" }
-    }
-  }
-}
+```bash
+mkdir -p ~/.pi/agent/extensions/pi-linear-service
+cp settings.json.example ~/.pi/agent/extensions/pi-linear-service/settings.json
 ```
 
-Repo directory resolution:
-- If `projectDirOverrides` contains a match (by projectName or projectId), use that directory.
-- Otherwise use `<workspaceRoot>/<LinearProjectName>` if it exists.
-- Otherwise fall back to `workspaceRoot`.
+## Testing
 
-`projectDirOverrides` values:
-- can be **relative** to `workspaceRoot` (e.g. `different-folder-name`)
-- or an **absolute** path.
+```bash
+npm test
+```
 
-#### Legacy mode
-
-Legacy mode uses the older tmux/process session-manager approach.
-
-Enable:
-- `.env`: `PI_LINEAR_MODE=legacy`
-- or `settings.json`: `{ "mode": "legacy", ... }`
-
-In legacy mode, `settings.json` controls the session manager via `legacy.sessionManager`.
+Runs baseline deterministic checks (config validation, Linear query error handling, RPC client, service CLI, ownership/template checks, and tmux runner checks).
 
 ## Notes
 
-- RPC protocol is **newline-delimited JSON (NDJSON)**, not JSON-RPC 2.0.
-- “Done” detection is not performed by this daemon; the agent is expected to transition issues via Linear tooling.
+- RPC protocol is **NDJSON**, not JSON-RPC 2.0.
+- “Done” detection is not done by this daemon; the agent is expected to transition issue state in Linear.

@@ -7,6 +7,21 @@ import { spawn } from 'child_process';
 import { error as logError, debug, info, warn } from './logger.js';
 import { SessionManager } from './session-manager.js';
 
+function isExpectedNonZeroTmuxResult(args, stderr = '') {
+  const cmd = args?.[0];
+  const err = String(stderr || '').toLowerCase();
+
+  if (cmd === 'has-session') {
+    return err.includes("can't find session") || err.includes('no server running');
+  }
+
+  if (cmd === 'list-sessions') {
+    return err.includes('no server running');
+  }
+
+  return false;
+}
+
 /**
  * Tmux Session Manager implementation
  */
@@ -42,13 +57,24 @@ export class TmuxSessionManager extends SessionManager {
 
       child.on('close', (code) => {
         const durationMs = Date.now() - startTime;
+        const trimmedStderr = stderr.trim();
+
         if (code !== 0) {
-          logError('tmux command failed', {
-            args: args.join(' '),
-            exitCode: code,
-            stderr: stderr.trim(),
-            durationMs,
-          });
+          if (isExpectedNonZeroTmuxResult(args, trimmedStderr)) {
+            debug('tmux command returned expected non-zero status', {
+              args: args.join(' '),
+              exitCode: code,
+              stderr: trimmedStderr,
+              durationMs,
+            });
+          } else {
+            logError('tmux command failed', {
+              args: args.join(' '),
+              exitCode: code,
+              stderr: trimmedStderr,
+              durationMs,
+            });
+          }
         } else {
           debug('tmux command completed', {
             args: args.join(' '),
@@ -56,7 +82,7 @@ export class TmuxSessionManager extends SessionManager {
             durationMs,
           });
         }
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code });
+        resolve({ stdout: stdout.trim(), stderr: trimmedStderr, exitCode: code });
       });
 
       child.on('error', (err) => {

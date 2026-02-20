@@ -1,9 +1,12 @@
-# TODO - Docs: Update documentation for RPC mode + repo mapping + provider/model
+# TODO - Reliability hardening + Linear issue tracking
 
-## Steps
-
-- [x] 1. Update `README.md` to reflect RPC-default mode, RPC config/env vars, provider/model, workspaceRoot and projectDirOverrides; move legacy tmux/process docs under a clear Legacy section.
-- [x] 2. Update `FUNCTIONALITY.md` to match current architecture (RPC mode default + legacy mode).
-- [x] 3. Update `package.json` description (no longer tmux-only).
-- [x] 4. Run tests (`node test-*.js` and `node test-pi-rpc-client.js`).
-- [x] 5. Commit, merge to main, push.
+- [x] Create Linear issues in project `pi-linear-service` for identified flaw buckets
+- [x] Start implementation issue via `linear issue start <id>` and work on that branch
+- [x] Fix `src/linear.js` timeout/network error handling and add regression test
+- [x] Validate effective mode (`rpc|legacy`) in config load path
+- [x] Reduce noisy error logs for expected tmux states
+- [x] Add graceful shutdown handling for daemon loop and active sessions
+- [x] Add `npm test` script for reproducible local test run
+- [x] Update README/FUNCTIONALITY docs for changed reliability behavior
+- [x] Run tests/reality checks and capture results
+- [x] Update Linear issue(s) with completion comments and mark done as appropriate

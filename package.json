@@ -1,5 +1,5 @@
 {
-  "name": "pi-linear-service",
+  "name": "@fink-andreas/pi-linear-service",
   "version": "1.0.0",
   "description": "Node.js daemon that polls Linear and runs pi per project (RPC mode by default)",
   "type": "module",
@@ -7,15 +7,33 @@
     "node": ">=18.0.0"
   },
   "main": "index.js",
+  "bin": {
+    "pi-linear-service": "bin/pi-linear-service.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "index.js",
+    "README.md",
+    "FUNCTIONALITY.md",
+    "settings.json.example",
+    "pi-linear.service"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "postinstall": "node bin/postinstall.js",
+    "test": "node test-config-mode-validation.js && node test-linear-execute-query.js && node test-pi-rpc-client.js && node test-service-cli.js && node test-session-ownership.js && node test-session-command-template.js && node test-tmux-runner.js"
   },
   "keywords": [
     "linear",
-    "tmux",
     "pi",
-    "daemon"
+    "daemon",
+    "rpc",
+    "systemd"
   ],
   "license": "MIT",
   "author": "",
