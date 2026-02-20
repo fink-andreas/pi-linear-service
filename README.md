@@ -41,6 +41,13 @@ pi-linear-service start
 pi-linear-service service install [--working-dir <dir>] [--env-file <path>] [--unit-name <name>] [--node-path <path>] [--no-systemctl]
 pi-linear-service service uninstall [--unit-name <name>] [--no-systemctl]
 pi-linear-service service status [--unit-name <name>]
+
+# Hybrid extension control-plane (separate actions)
+pi-linear-service daemon setup --project-id <id> --repo-path <path> [--project-name <name>] [--open-states "Todo,In Progress"] [--assignee me|all]
+pi-linear-service daemon reconfigure --project-id <id> [--repo-path <path>] [--project-name <name>] [--open-states "Todo,In Progress"] [--assignee me|all]
+pi-linear-service daemon disable --project-id <id>
+pi-linear-service daemon status --project-id <id>
+pi-linear-service daemon start|stop|restart [--unit-name <name>]
 ```
 
 ### Install service defaults (elaborated)
@@ -106,6 +113,37 @@ mkdir -p ~/.pi/agent/extensions/pi-linear-service
 cp settings.json.example ~/.pi/agent/extensions/pi-linear-service/settings.json
 ```
 
+Hybrid project-scoped model:
+- one logical daemon config per Linear project (keyed by project ID)
+- explicit repo mapping is required per project (`projects.<id>.repo.path`)
+- no implicit project-name directory fallback in strict project-scoped mode
+
+Example:
+
+```json
+{
+  "schemaVersion": 2,
+  "mode": "rpc",
+  "projects": {
+    "97ec7cae-e252-493d-94d3-6910aa28cacf": {
+      "enabled": true,
+      "projectName": "pi-linear-test-repo",
+      "scope": {
+        "assignee": "me",
+        "openStates": ["Todo", "In Progress"]
+      },
+      "repo": {
+        "path": "/home/afi/dvl/pi-linear-test-repo"
+      },
+      "runtime": {
+        "timeoutMs": 120000,
+        "restartCooldownSec": 60
+      }
+    }
+  }
+}
+```
+
 ## Testing
 
 ```bash
@@ -117,4 +155,5 @@ Runs baseline deterministic checks (config validation, Linear query error handli
 ## Notes
 
 - RPC protocol is **NDJSON**, not JSON-RPC 2.0.
+- Hybrid flow is auto-processing by default (no manual approval gate before prompting).
 - “Done” detection is not done by this daemon; the agent is expected to transition issue state in Linear.

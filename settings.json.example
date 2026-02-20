@@ -1,5 +1,26 @@
 {
+  "schemaVersion": 2,
   "mode": "rpc",
+  "projects": {
+    "97ec7cae-e252-493d-94d3-6910aa28cacf": {
+      "enabled": true,
+      "projectName": "pi-linear-test-repo",
+      "scope": {
+        "assignee": "me",
+        "openStates": ["Todo", "In Progress"]
+      },
+      "repo": {
+        "path": "/home/afi/dvl/pi-linear-test-repo"
+      },
+      "runtime": {
+        "pollIntervalSec": 30,
+        "timeoutMs": 120000,
+        "restartCooldownSec": 60,
+        "provider": "cerebras",
+        "model": "zai-glm-4.7"
+      }
+    }
+  },
   "rpc": {
     "timeoutMs": 120000,
     "restartCooldownSec": 60,
@@ -9,9 +30,7 @@
     "model": "zai-glm-4.7",
     "workspaceRoot": "~/dvl",
     "projectDirOverrides": {
-      "pi-linear-test-repo": "pi-linear-test-repo",
-      "some-linear-project-name": "different-folder-name",
-      "97ec7cae-e252-493d-94d3-6910aa28cacf": "pi-linear-test-repo"
+      "some-linear-project-name": "different-folder-name"
     }
   },
   "legacy": {

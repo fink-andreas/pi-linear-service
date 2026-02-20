@@ -31,6 +31,7 @@ export class RpcSessionManager {
     this.piArgs = options.piArgs || [];
     this.workspaceRoot = options.workspaceRoot || null;
     this.projectDirOverrides = options.projectDirOverrides || {};
+    this.strictRepoMapping = options.strictRepoMapping ?? false;
 
     /** @type {Map<string, {client: PiRpcClient, startedAt: number, needsInput: boolean}>} */
     this.sessions = new Map();
@@ -75,16 +76,45 @@ export class RpcSessionManager {
   }
 
   _resolveCwd(context = {}) {
-    if (!this.workspaceRoot) return undefined;
+    const projectName = context.projectName;
+    const projectId = context.projectId;
 
-    const root = resolve(this._expandHome(this.workspaceRoot));
-    if (!existsSync(root)) {
-      warn('RPC workspaceRoot does not exist; falling back to inherited cwd', { workspaceRoot: this.workspaceRoot, resolved: root });
+    const strict = context.strictRepoMapping ?? this.strictRepoMapping;
+
+    // Highest precedence: explicit repoPath from project-scoped config.
+    if (context.repoPath) {
+      const expanded = this._expandHome(context.repoPath);
+      const resolvedPath = expanded.startsWith('/') || /^[A-Za-z]:\\/.test(expanded)
+        ? resolve(expanded)
+        : (this.workspaceRoot ? resolve(join(resolve(this._expandHome(this.workspaceRoot)), expanded)) : resolve(expanded));
+
+      if (existsSync(resolvedPath)) {
+        return resolvedPath;
+      }
+
+      const msg = 'Configured repo path does not exist';
+      if (strict) {
+        throw new Error(`${msg}: ${resolvedPath}`);
+      }
+
+      warn(`${msg}; falling back`, { projectName, projectId, repoPath: resolvedPath });
+    }
+
+    if (!this.workspaceRoot) {
+      if (strict) {
+        throw new Error('No workspaceRoot configured and no explicit repoPath provided for strict mapping');
+      }
       return undefined;
     }
 
-    const projectName = context.projectName;
-    const projectId = context.projectId;
+    const root = resolve(this._expandHome(this.workspaceRoot));
+    if (!existsSync(root)) {
+      if (strict) {
+        throw new Error(`workspaceRoot does not exist: ${root}`);
+      }
+      warn('RPC workspaceRoot does not exist; falling back to inherited cwd', { workspaceRoot: this.workspaceRoot, resolved: root });
+      return undefined;
+    }
 
     // Directory override can map either projectName or projectId to a directory.
     const overrides = context.projectDirOverrides || {};
@@ -97,13 +127,23 @@ export class RpcSessionManager {
       if (expanded.startsWith('/') || /^[A-Za-z]:\\/.test(expanded)) {
         const abs = resolve(expanded);
         if (existsSync(abs)) return abs;
+        if (strict) {
+          throw new Error(`projectDirOverride absolute path does not exist: ${abs}`);
+        }
         warn('RPC projectDirOverride absolute path does not exist; ignoring override', { projectName, projectId, override: abs });
       } else {
         // Relative override: resolve under workspaceRoot
         const candidate = resolve(join(root, expanded));
         if (existsSync(candidate)) return candidate;
+        if (strict) {
+          throw new Error(`projectDirOverride relative path does not exist: ${candidate}`);
+        }
         warn('RPC projectDirOverride relative path does not exist; ignoring override', { projectName, projectId, override: candidate });
       }
+    }
+
+    if (strict) {
+      throw new Error(`Explicit repo mapping required for project ${projectId || projectName || '<unknown>'}`);
     }
 
     if (projectName) {
@@ -130,10 +170,23 @@ export class RpcSessionManager {
       return { created: false, existed: false, sessionName, skipped: true, reason: `cooldown ${remainingSec}s remaining` };
     }
 
-    const cwd = this._resolveCwd({
-      ...context,
-      projectDirOverrides: this.projectDirOverrides,
-    });
+    let cwd;
+    try {
+      cwd = this._resolveCwd({
+        ...context,
+        projectDirOverrides: this.projectDirOverrides,
+      });
+    } catch (err) {
+      this.recordRestartAttempt(sessionName);
+      warn('RPC session creation skipped due to repo mapping error', {
+        sessionName,
+        projectId: context.projectId,
+        projectName: context.projectName,
+        error: err?.message || String(err),
+      });
+      return { created: false, existed: false, sessionName, error: err, skipped: true, reason: err?.message || String(err) };
+    }
+
     info('Creating RPC session', { sessionName, piCommand: this.piCommand, piArgs: this.piArgs, cwd });
 
     const client = new PiRpcClient(sessionName, {

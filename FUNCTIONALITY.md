@@ -16,9 +16,11 @@ The service supports two modes:
 For every poll:
 
 1. Run a Linear smoke query (viewer)
-2. Fetch assigned issues in configured open states (`LINEAR_OPEN_STATES`)
-3. Group qualifying issues by Linear project
-4. For each project (respecting filter/blacklist):
+2. Build effective scope from project configs (`settings.projects`) when configured
+3. Fetch issues using effective scope (assignee mode + open states)
+4. Apply per-project scope filtering (enabled flag, assignee mode, open states)
+5. Group qualifying issues by Linear project
+6. For each project (respecting filter/blacklist):
    - ensure there is a running `pi --mode rpc` process for that project
    - if the project session is **idle**, send a prompt for the **first** qualifying issue (one-at-a-time)
 
@@ -46,16 +48,16 @@ Linear HTTP timeout/network failures are also surfaced with explicit errors (ins
 
 ### Repo working directory (cwd)
 
-To run `pi` inside the correct Git repo:
+Hybrid project-scoped mode uses explicit mapping per project:
 
-- Set `rpc.workspaceRoot` (or env `RPC_WORKSPACE_ROOT`) to the directory containing your cloned repos (e.g. `~/dvl`).
-- The daemon will spawn `pi` with:
-  - `cwd = <workspaceRoot>/<LinearProjectName>` if it exists
-  - or `cwd = <workspaceRoot>` as fallback
+- Configure `projects.<projectId>.repo.path` in settings.
+- This mapping is required for project-scoped daemon configs.
+- In strict project-scoped mode, the daemon will not fall back to project-name directory inference.
 
-If the repo folder name differs from the Linear project name, configure:
-
-- `rpc.projectDirOverrides`: map of `projectName` or `projectId` → directory (relative to `workspaceRoot` or absolute).
+Resolution order:
+1. `projects.<projectId>.repo.path` (explicit mapping)
+2. (legacy/non-strict only) `rpc.projectDirOverrides`
+3. (legacy/non-strict only) workspace fallback behavior
 
 ### Provider/model selection
 
@@ -66,6 +68,18 @@ If configured, the daemon starts pi as:
 Config keys:
 - `rpc.provider` / env `RPC_PROVIDER`
 - `rpc.model` / env `RPC_MODEL`
+
+### Hybrid extension control-plane actions
+
+Separate actions are supported for UI integration:
+
+- `daemon setup` (create/update a project daemon config)
+- `daemon reconfigure` (change scope/runtime for existing project)
+- `daemon disable` (turn off a project daemon config)
+- `daemon status` (show project daemon config + service active state)
+- `daemon start|stop|restart` (service lifecycle controls)
+
+By default, setup/reconfigure applies runtime changes via controlled service restart.
 
 ### Future extension point: agent questions
 
@@ -116,6 +130,10 @@ Mode is validated at startup; only `rpc` and `legacy` are accepted.
 ```
 ~/.pi/agent/extensions/pi-linear-service/settings.json
 ```
+
+Key hybrid fields:
+- `schemaVersion`
+- `projects` (map of projectId -> daemon config)
 
 Environment variables override relevant settings where supported.
 

@@ -3,9 +3,9 @@
  * Reads configuration from ~/.pi/agent/extensions/pi-linear-service/settings.json
  */
 
-import { readFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { dirname, join, isAbsolute, resolve } from 'path';
 import { debug, warn, error as logError } from './logger.js';
 
 /**
@@ -14,7 +14,9 @@ import { debug, warn, error as logError } from './logger.js';
  */
 export function getDefaultSettings() {
   return {
+    schemaVersion: 2,
     mode: 'rpc',
+    projects: {},
     rpc: {
       timeoutMs: 120000,
       restartCooldownSec: 60,
@@ -41,6 +43,69 @@ export function getDefaultSettings() {
   };
 }
 
+function normalizeRepoPath(repoPath, workspaceRoot) {
+  if (typeof repoPath !== 'string' || repoPath.trim().length === 0) return repoPath;
+  if (isAbsolute(repoPath)) return repoPath;
+  if (typeof workspaceRoot === 'string' && workspaceRoot.trim().length > 0) {
+    return resolve(workspaceRoot, repoPath);
+  }
+  return repoPath;
+}
+
+function migrateSettings(settings) {
+  const migrated = { ...(settings || {}) };
+
+  // Legacy compatibility: root-level sessionManager -> legacy.sessionManager
+  if (migrated.sessionManager && !migrated.legacy?.sessionManager) {
+    migrated.legacy = migrated.legacy || {};
+    migrated.legacy.sessionManager = migrated.sessionManager;
+    delete migrated.sessionManager;
+  }
+
+  if (migrated.schemaVersion === undefined) {
+    migrated.schemaVersion = 1;
+  }
+
+  if (!migrated.projects || typeof migrated.projects !== 'object' || Array.isArray(migrated.projects)) {
+    migrated.projects = {};
+  }
+
+  // Ensure minimal legacy defaults when present
+  if (!migrated.legacy) migrated.legacy = {};
+  if (!migrated.legacy.sessionManager) migrated.legacy.sessionManager = {};
+  if (!migrated.legacy.sessionManager.type) migrated.legacy.sessionManager.type = 'tmux';
+  if (!migrated.legacy.sessionManager.tmux) migrated.legacy.sessionManager.tmux = {};
+  if (!migrated.legacy.sessionManager.process) migrated.legacy.sessionManager.process = { args: [] };
+  if (!Array.isArray(migrated.legacy.sessionManager.process.args)) migrated.legacy.sessionManager.process.args = [];
+
+  // Migration v1 -> v2:
+  // Seed project entries from rpc.projectDirOverrides when available.
+  if (migrated.schemaVersion < 2) {
+    const overrides = migrated.rpc?.projectDirOverrides;
+    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+      for (const [projectKey, dir] of Object.entries(overrides)) {
+        if (!migrated.projects[projectKey] && typeof dir === 'string' && dir.trim().length > 0) {
+          migrated.projects[projectKey] = {
+            enabled: false,
+            scope: {
+              assignee: 'me',
+              openStates: ['Todo', 'In Progress'],
+            },
+            repo: {
+              path: normalizeRepoPath(dir, migrated.rpc?.workspaceRoot || null),
+            },
+            runtime: {},
+          };
+        }
+      }
+    }
+
+    migrated.schemaVersion = 2;
+  }
+
+  return migrated;
+}
+
 /**
  * Validate settings object structure
  * @param {Object} settings - Settings object to validate
@@ -58,6 +123,57 @@ export function validateSettings(settings) {
   if (settings.mode !== undefined) {
     if (typeof settings.mode !== 'string' || !validModes.includes(settings.mode)) {
       errors.push(`settings.mode must be one of: ${validModes.join(', ')}`);
+    }
+  }
+
+  if (settings.schemaVersion !== undefined) {
+    if (typeof settings.schemaVersion !== 'number' || settings.schemaVersion < 1) {
+      errors.push('settings.schemaVersion must be a positive number');
+    }
+  }
+
+  // Validate project-scoped daemon configs (hybrid mode)
+  if (settings.projects !== undefined) {
+    if (typeof settings.projects !== 'object' || settings.projects === null || Array.isArray(settings.projects)) {
+      errors.push('settings.projects must be an object map keyed by Linear project id');
+    } else {
+      for (const [projectId, cfg] of Object.entries(settings.projects)) {
+        if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+          errors.push(`settings.projects.${projectId} must be an object`);
+          continue;
+        }
+
+        if (cfg.enabled !== undefined && typeof cfg.enabled !== 'boolean') {
+          errors.push(`settings.projects.${projectId}.enabled must be boolean`);
+        }
+
+        if (!cfg.repo || typeof cfg.repo !== 'object' || Array.isArray(cfg.repo)) {
+          errors.push(`settings.projects.${projectId}.repo must be an object`);
+        } else {
+          if (typeof cfg.repo.path !== 'string' || cfg.repo.path.trim().length === 0) {
+            errors.push(`settings.projects.${projectId}.repo.path must be a non-empty string`);
+          } else if (!isAbsolute(cfg.repo.path) && !(typeof settings.rpc?.workspaceRoot === 'string' && settings.rpc.workspaceRoot.trim().length > 0)) {
+            errors.push(`settings.projects.${projectId}.repo.path must be absolute, or settings.rpc.workspaceRoot must be configured`);
+          }
+        }
+
+        if (cfg.scope !== undefined) {
+          if (typeof cfg.scope !== 'object' || cfg.scope === null || Array.isArray(cfg.scope)) {
+            errors.push(`settings.projects.${projectId}.scope must be an object`);
+          } else {
+            if (cfg.scope.assignee !== undefined && !['me', 'all'].includes(cfg.scope.assignee)) {
+              errors.push(`settings.projects.${projectId}.scope.assignee must be one of: me, all`);
+            }
+            if (cfg.scope.openStates !== undefined && !Array.isArray(cfg.scope.openStates)) {
+              errors.push(`settings.projects.${projectId}.scope.openStates must be an array`);
+            }
+          }
+        }
+
+        if (cfg.runtime !== undefined && (typeof cfg.runtime !== 'object' || cfg.runtime === null || Array.isArray(cfg.runtime))) {
+          errors.push(`settings.projects.${projectId}.runtime must be an object`);
+        }
+      }
     }
   }
 
@@ -158,7 +274,7 @@ export function validateSettings(settings) {
  * Get the settings file path
  * @returns {string} Path to settings.json
  */
-function getSettingsPath() {
+export function getSettingsPath() {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '.';
   return join(homeDir, '.pi', 'agent', 'extensions', 'pi-linear-service', 'settings.json');
 }
@@ -180,11 +296,12 @@ export async function loadSettings() {
 
   try {
     const content = await readFile(settingsPath, 'utf-8');
-    const settings = JSON.parse(content);
+    const parsed = JSON.parse(content);
+    const settings = migrateSettings(parsed);
 
-    debug('Settings file loaded', { path: settingsPath });
+    debug('Settings file loaded', { path: settingsPath, schemaVersion: settings.schemaVersion });
 
-    // Validate settings
+    // Validate settings after migration
     const validation = validateSettings(settings);
 
     if (!validation.valid) {
@@ -196,6 +313,8 @@ export async function loadSettings() {
     }
 
     // Ensure nested objects exist (for safety)
+    if (!settings.projects) settings.projects = {};
+
     if (!settings.rpc) settings.rpc = {};
     if (!settings.rpc.piArgs) settings.rpc.piArgs = [];
     if (settings.rpc.workspaceRoot === undefined) settings.rpc.workspaceRoot = null;
@@ -209,8 +328,17 @@ export async function loadSettings() {
     if (!settings.legacy.sessionManager.process) settings.legacy.sessionManager.process = {};
     if (!settings.legacy.sessionManager.process.args) settings.legacy.sessionManager.process.args = [];
 
+    // Normalize project repo paths when workspaceRoot is available
+    for (const cfg of Object.values(settings.projects)) {
+      if (cfg?.repo?.path) {
+        cfg.repo.path = normalizeRepoPath(cfg.repo.path, settings.rpc?.workspaceRoot || null);
+      }
+    }
+
     debug('Settings validated and loaded', {
       mode: settings.mode,
+      schemaVersion: settings.schemaVersion,
+      projectCount: Object.keys(settings.projects || {}).length,
       rpcTimeoutMs: settings.rpc?.timeoutMs,
       legacySessionManagerType: settings.legacy?.sessionManager?.type,
     });
@@ -232,6 +360,26 @@ export async function loadSettings() {
     debug('Falling back to default settings');
     return getDefaultSettings();
   }
+}
+
+/**
+ * Persist settings to settings.json
+ * @param {Object} settings
+ * @returns {Promise<string>} Written settings path
+ */
+export async function saveSettings(settings) {
+  const settingsPath = getSettingsPath();
+  const parentDir = dirname(settingsPath);
+
+  const migrated = migrateSettings(settings);
+  const validation = validateSettings(migrated);
+  if (!validation.valid) {
+    throw new Error(`Cannot save invalid settings: ${validation.errors.join('; ')}`);
+  }
+
+  await mkdir(parentDir, { recursive: true });
+  await writeFile(settingsPath, `${JSON.stringify(migrated, null, 2)}\n`, 'utf-8');
+  return settingsPath;
 }
 
 /**
