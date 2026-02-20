@@ -48,6 +48,7 @@ Provide project id + repo path (absolute path required), then confirm success.
 - **Repo-aware execution:** start `pi` in the right repo directory via explicit project mapping
 - **Model/provider selection:** pass `--provider/--model` to `pi`
 - **pi-native extension commands:** setup/reconfigure/status/lifecycle inside pi
+- **pi-native Linear issue tools:** `linear_issue_start`, `linear_issue_comment_add`, `linear_issue_update` (direct GraphQL)
 - **systemd user service support:** install/uninstall/status commands for background operation
 - **Timeout + recovery:** abort + cooldown + restart if RPC calls hang (default 120s)
 - **Graceful shutdown:** handles `SIGINT`/`SIGTERM`, stops polling, and cleans up managed sessions
@@ -124,6 +125,27 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
 - `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-help`
+
+## In-pi extension tools (LLM-callable)
+
+These tools are available to the pi coding agent and use direct Linear GraphQL API calls (no local `linear` binary required):
+
+- `linear_issue_start`
+  - params: `issue`, optional `branch`, `fromRef`, `onBranchExists` (`switch` | `suffix`)
+  - behavior: resolves issue + default `branchName`, performs git branch start flow (switch/create/suffix), then moves issue to started state
+- `linear_issue_comment_add`
+  - params: `issue`, `body`, optional `parentCommentId`
+  - behavior: adds a comment to the issue
+- `linear_issue_update`
+  - params: `issue`, optional `title`, `description`, `priority`, `state`
+  - behavior: applies selected field updates via `issueUpdate`
+
+Required auth env:
+- `LINEAR_API_KEY`
+
+For `linear_issue_start` git branch operations:
+- run inside a git repository
+- `git` must be available on PATH
 
 ## Legacy CLI-only path (still supported)
 

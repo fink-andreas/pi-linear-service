@@ -8,18 +8,27 @@ import { join } from 'node:path';
 import extension from './extensions/pi-linear-service.js';
 import { getSettingsPath } from './src/settings.js';
 
-function createMockPi() {
+function createMockPi(execImpl = null) {
   const commands = new Map();
+  const tools = new Map();
   const sentMessages = [];
 
   return {
     commands,
+    tools,
     sentMessages,
     registerCommand(name, definition) {
       commands.set(name, definition);
     },
+    registerTool(definition) {
+      tools.set(definition.name, definition);
+    },
     sendMessage(message) {
       sentMessages.push(message);
+    },
+    async exec(command, args) {
+      if (!execImpl) return { code: 0, stdout: '', stderr: '' };
+      return execImpl(command, args);
     },
   };
 }
@@ -32,6 +41,16 @@ async function withTempHome(fn) {
     await fn(tempHome);
   } finally {
     process.env.HOME = prevHome;
+  }
+}
+
+async function withMockFetch(mockFetch, fn) {
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch;
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = prevFetch;
   }
 }
 
@@ -52,6 +71,16 @@ async function testCommandRegistration() {
 
   for (const command of expected) {
     assert.ok(pi.commands.has(command), `Expected command to be registered: ${command}`);
+  }
+
+  const expectedTools = [
+    'linear_issue_start',
+    'linear_issue_comment_add',
+    'linear_issue_update',
+  ];
+
+  for (const tool of expectedTools) {
+    assert.ok(pi.tools.has(tool), `Expected tool to be registered: ${tool}`);
   }
 }
 
@@ -218,6 +247,185 @@ async function testLifecycleCommandsNoSystemctl() {
   await restart('--no-systemctl', ctx);
 }
 
+async function testLinearToolRequiresApiKey() {
+  const prev = process.env.LINEAR_API_KEY;
+  delete process.env.LINEAR_API_KEY;
+
+  try {
+    const pi = createMockPi();
+    extension(pi);
+    const tool = pi.tools.get('linear_issue_start');
+    await assert.rejects(() => tool.execute('call-1', { issue: 'ABC-123' }), /Missing LINEAR_API_KEY/);
+  } finally {
+    process.env.LINEAR_API_KEY = prev;
+  }
+}
+
+async function testLinearIssueUpdateToolSuccess() {
+  const prev = process.env.LINEAR_API_KEY;
+  process.env.LINEAR_API_KEY = 'lin_test';
+
+  try {
+    const pi = createMockPi();
+    extension(pi);
+
+    const tool = pi.tools.get('linear_issue_update');
+
+    await withMockFetch(async (_url, options = {}) => {
+      const payload = JSON.parse(options.body || '{}');
+      const query = payload.query || '';
+
+      if (query.includes('query IssueById')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              issue: {
+                id: 'issue-1',
+                identifier: 'ABC-123',
+                title: 'Before',
+                branchName: 'feature/abc-123-before',
+                team: { id: 'team-1', key: 'ABC' },
+                state: { id: 'state-1', name: 'Todo', type: 'unstarted' },
+              },
+            },
+          }),
+        };
+      }
+
+      if (query.includes('mutation IssueUpdate')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              issueUpdate: {
+                success: true,
+                issue: {
+                  id: 'issue-1',
+                  identifier: 'ABC-123',
+                  title: 'After',
+                  priority: 2,
+                  state: { id: 'state-1', name: 'Todo', type: 'unstarted' },
+                },
+              },
+            },
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected query in test: ${query}`);
+    }, async () => {
+      const result = await tool.execute('call-2', {
+        issue: 'ABC-123',
+        title: 'After',
+        priority: 2,
+      });
+
+      assert.match(result.content[0].text, /Updated issue ABC-123/);
+      assert.deepEqual(result.details.changed.sort(), ['priority', 'title']);
+    });
+  } finally {
+    process.env.LINEAR_API_KEY = prev;
+  }
+}
+
+async function testLinearIssueStartToolGitFlow() {
+  const prev = process.env.LINEAR_API_KEY;
+  process.env.LINEAR_API_KEY = 'lin_test';
+
+  const gitCalls = [];
+  const pi = createMockPi(async (command, args) => {
+    gitCalls.push([command, ...args]);
+
+    if (command !== 'git') return { code: 1, stdout: '', stderr: 'unsupported' };
+
+    if (args[0] === 'rev-parse' && args[1] === '--verify') {
+      return { code: 1, stdout: '', stderr: 'not found' };
+    }
+
+    if (args[0] === 'checkout' && args[1] === '-b') {
+      return { code: 0, stdout: '', stderr: '' };
+    }
+
+    return { code: 0, stdout: '', stderr: '' };
+  });
+
+  extension(pi);
+  const tool = pi.tools.get('linear_issue_start');
+
+  try {
+    await withMockFetch(async (_url, options = {}) => {
+      const payload = JSON.parse(options.body || '{}');
+      const query = payload.query || '';
+
+      if (query.includes('query IssueById')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              issue: {
+                id: 'issue-2',
+                identifier: 'ABC-456',
+                title: 'Start me',
+                branchName: 'feature/abc-456-start-me',
+                team: { id: 'team-1', key: 'ABC' },
+                state: { id: 'todo', name: 'Todo', type: 'unstarted' },
+              },
+            },
+          }),
+        };
+      }
+
+      if (query.includes('query TeamWorkflowStates')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              team: {
+                states: {
+                  nodes: [
+                    { id: 'todo', name: 'Todo', type: 'unstarted' },
+                    { id: 'prog', name: 'In Progress', type: 'started' },
+                  ],
+                },
+              },
+            },
+          }),
+        };
+      }
+
+      if (query.includes('mutation IssueUpdate')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              issueUpdate: {
+                success: true,
+                issue: {
+                  id: 'issue-2',
+                  identifier: 'ABC-456',
+                  title: 'Start me',
+                  priority: 0,
+                  state: { id: 'prog', name: 'In Progress', type: 'started' },
+                },
+              },
+            },
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected query in test: ${query}`);
+    }, async () => {
+      const result = await tool.execute('call-3', { issue: 'ABC-456' });
+      assert.match(result.content[0].text, /Started issue ABC-456/);
+      assert.match(result.content[0].text, /git created/);
+      assert.ok(gitCalls.some((args) => args.join(' ').includes('checkout -b feature/abc-456-start-me HEAD')));
+    });
+  } finally {
+    process.env.LINEAR_API_KEY = prev;
+  }
+}
+
 async function main() {
   await testCommandRegistration();
   await testSetupAndStatusCommandPaths();
@@ -226,6 +434,9 @@ async function main() {
   await testValidationFailureForMissingRepoPath();
   await testFailurePathActionableMessage();
   await testLifecycleCommandsNoSystemctl();
+  await testLinearToolRequiresApiKey();
+  await testLinearIssueUpdateToolSuccess();
+  await testLinearIssueStartToolGitFlow();
   console.log('✓ test-extension-commands.js passed');
 }
 

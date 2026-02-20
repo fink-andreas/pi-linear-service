@@ -26,6 +26,9 @@ async function main() {
   assert.match(extensionSource, /registerCommand\('linear-daemon-setup'/, 'extension must register setup command');
   assert.match(extensionSource, /registerCommand\('linear-daemon-reconfigure'/, 'extension must register reconfigure command');
   assert.match(extensionSource, /registerCommand\('linear-daemon-status'/, 'extension must register status command');
+  assert.match(extensionSource, /registerTool\({[\s\S]*name: 'linear_issue_start'/, 'extension must register linear issue start tool');
+  assert.match(extensionSource, /name: 'linear_issue_comment_add'/, 'extension must register linear issue comment add tool');
+  assert.match(extensionSource, /name: 'linear_issue_update'/, 'extension must register linear issue update tool');
 
   console.log('✓ test-package-manifest.js passed');
 }

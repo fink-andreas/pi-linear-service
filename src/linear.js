@@ -253,3 +253,242 @@ export function groupIssuesByProject(issues) {
 
   return map;
 }
+
+function isLinearId(value) {
+  return typeof value === 'string' && /^[0-9a-fA-F-]{16,}$/.test(value);
+}
+
+function normalizeIssueLookupInput(issue) {
+  const value = String(issue || '').trim();
+  if (!value) throw new Error('Missing required issue identifier');
+  return value;
+}
+
+async function queryIssueByIdentifier(apiKey, identifier) {
+  const query = `query IssueByIdentifier($identifier: String!) {
+    issues(first: 1, filter: { identifier: { eq: $identifier } }) {
+      nodes {
+        id
+        identifier
+        title
+        branchName
+        team {
+          id
+          key
+        }
+        state {
+          id
+          name
+          type
+        }
+      }
+    }
+  }`;
+
+  const data = await executeQuery(apiKey, query, { identifier }, { operationName: 'IssueByIdentifier' });
+  return data?.issues?.nodes?.[0] || null;
+}
+
+async function queryIssueById(apiKey, id) {
+  const query = `query IssueById($id: ID!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      branchName
+      team {
+        id
+        key
+      }
+      state {
+        id
+        name
+        type
+      }
+    }
+  }`;
+
+  const data = await executeQuery(apiKey, query, { id }, { operationName: 'IssueById' });
+  return data?.issue || null;
+}
+
+export async function resolveIssue(apiKey, issue) {
+  const lookup = normalizeIssueLookupInput(issue);
+
+  const byIdLike = await queryIssueById(apiKey, lookup).catch(() => null);
+  if (byIdLike) return byIdLike;
+
+  if (isLinearId(lookup)) {
+    throw new Error(`Issue not found: ${lookup}`);
+  }
+
+  const byIdentifier = await queryIssueByIdentifier(apiKey, lookup).catch(() => null);
+  if (byIdentifier) return byIdentifier;
+
+  throw new Error(`Issue not found: ${lookup}`);
+}
+
+export async function getTeamWorkflowStates(apiKey, teamId) {
+  const query = `query TeamWorkflowStates($teamId: String!) {
+    team(id: $teamId) {
+      states {
+        nodes {
+          id
+          name
+          type
+        }
+      }
+    }
+  }`;
+
+  const data = await executeQuery(apiKey, query, { teamId }, { operationName: 'TeamWorkflowStates' });
+  return data?.team?.states?.nodes || [];
+}
+
+function resolveStateIdFromInput(states, stateInput) {
+  if (!stateInput) return null;
+  const target = String(stateInput).trim();
+  if (!target) return null;
+
+  const byId = states.find((s) => s.id === target);
+  if (byId) return byId.id;
+
+  const lower = target.toLowerCase();
+  const byName = states.find((s) => String(s.name || '').toLowerCase() === lower);
+  if (byName) return byName.id;
+
+  throw new Error(`State not found in team workflow: ${target}`);
+}
+
+async function issueUpdateMutation(apiKey, issueId, input, operationName = 'IssueUpdate') {
+  const mutation = `mutation IssueUpdate($id: ID!, $input: IssueUpdateInput!) {
+    issueUpdate(id: $id, input: $input) {
+      success
+      issue {
+        id
+        identifier
+        title
+        priority
+        state {
+          id
+          name
+          type
+        }
+      }
+    }
+  }`;
+
+  const data = await executeQuery(apiKey, mutation, { id: issueId, input }, { operationName });
+  const result = data?.issueUpdate;
+  if (!result?.success) {
+    throw new Error('Linear issueUpdate returned success=false');
+  }
+  return result.issue;
+}
+
+export async function prepareIssueStart(apiKey, issue) {
+  const targetIssue = await resolveIssue(apiKey, issue);
+  const teamId = targetIssue?.team?.id;
+  if (!teamId) {
+    throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
+  }
+
+  const states = await getTeamWorkflowStates(apiKey, teamId);
+  const started = states.find((s) => s.type === 'started')
+    || states.find((s) => String(s.name || '').toLowerCase() === 'in progress');
+
+  if (!started?.id) {
+    throw new Error(`Could not resolve a started workflow state for team ${teamId}`);
+  }
+
+  return {
+    issue: targetIssue,
+    startedState: started,
+    branchName: targetIssue.branchName || null,
+  };
+}
+
+export async function setIssueState(apiKey, issueId, stateId, operationName = 'IssueSetState') {
+  return issueUpdateMutation(apiKey, issueId, { stateId }, operationName);
+}
+
+export async function startIssue(apiKey, issue) {
+  const prepared = await prepareIssueStart(apiKey, issue);
+  const updated = await setIssueState(apiKey, prepared.issue.id, prepared.startedState.id, 'IssueStartEquivalent');
+  return {
+    issue: updated,
+    startedState: prepared.startedState,
+    branchName: prepared.branchName,
+  };
+}
+
+export async function addIssueComment(apiKey, issue, body, parentCommentId = undefined) {
+  const commentBody = String(body || '').trim();
+  if (!commentBody) {
+    throw new Error('Missing required comment body');
+  }
+
+  const targetIssue = await resolveIssue(apiKey, issue);
+  const mutation = `mutation CommentCreate($input: CommentCreateInput!) {
+    commentCreate(input: $input) {
+      success
+      comment {
+        id
+        body
+        issue {
+          id
+          identifier
+        }
+      }
+    }
+  }`;
+
+  const input = {
+    issueId: targetIssue.id,
+    body: commentBody,
+    ...(parentCommentId ? { parentId: parentCommentId } : {}),
+  };
+
+  const data = await executeQuery(apiKey, mutation, { input }, { operationName: 'CommentCreate' });
+  const result = data?.commentCreate;
+  if (!result?.success) {
+    throw new Error('Linear commentCreate returned success=false');
+  }
+
+  return {
+    issue: targetIssue,
+    comment: result.comment,
+  };
+}
+
+export async function updateIssue(apiKey, issue, patch = {}) {
+  const targetIssue = await resolveIssue(apiKey, issue);
+  const nextPatch = {};
+
+  if (patch.title !== undefined) nextPatch.title = String(patch.title);
+  if (patch.description !== undefined) nextPatch.description = String(patch.description);
+  if (patch.priority !== undefined) {
+    const parsed = Number.parseInt(String(patch.priority), 10);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 4) {
+      throw new Error(`Invalid priority: ${patch.priority}. Valid range: 0..4`);
+    }
+    nextPatch.priority = parsed;
+  }
+
+  if (patch.state !== undefined) {
+    const teamId = targetIssue?.team?.id;
+    if (!teamId) throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
+    const states = await getTeamWorkflowStates(apiKey, teamId);
+    nextPatch.stateId = resolveStateIdFromInput(states, patch.state);
+  }
+
+  if (Object.keys(nextPatch).length === 0) {
+    throw new Error('No update fields provided');
+  }
+
+  const updated = await issueUpdateMutation(apiKey, targetIssue.id, nextPatch, 'IssueUpdateTool');
+  return {
+    issue: updated,
+    changed: Object.keys(nextPatch),
+  };
+}

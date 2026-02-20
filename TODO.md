@@ -1,6 +1,7 @@
-# TODO - INN-205 documentation refresh
+# TODO - Linear API issue actions as extension tools
 
-- [x] Update README with quickstart, install flows, full example, migration notes, and troubleshooting
-- [x] Update FUNCTIONALITY.md with final Phase 2 architecture and control-plane responsibilities
-- [x] Validate docs against actual command surface and behavior
-- [x] Run verification (`npm test` and `LINEAR_API_KEY=test ASSIGNEE_ID=test node index.js`)
+- [x] Implement `linear_issue_start` git branch flow parity (branchName/fromRef/onBranchExists)
+- [x] Extend `src/linear.js` start helpers to expose branch metadata + explicit state update step
+- [x] Update tool schema/docs for new start params (`branch`, `fromRef`, `onBranchExists`)
+- [x] Add/extend tests for start tool behavior and non-regression
+- [x] Run verification (`npm test` and `node index.js --help`)

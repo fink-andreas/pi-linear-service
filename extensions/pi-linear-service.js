@@ -10,6 +10,12 @@ import {
   daemonRestart,
 } from '../src/daemon-control.js';
 import { loadSettings } from '../src/settings.js';
+import {
+  prepareIssueStart,
+  setIssueState,
+  addIssueComment,
+  updateIssue,
+} from '../src/linear.js';
 
 function parseArgs(argsString) {
   if (!argsString || !argsString.trim()) return [];
@@ -234,7 +240,206 @@ async function runStatusWithCapture(args) {
   return captured.trim();
 }
 
+function getLinearApiKey() {
+  const apiKey = process.env.LINEAR_API_KEY;
+  if (!apiKey || !apiKey.trim()) {
+    throw new Error('Missing LINEAR_API_KEY in environment');
+  }
+  return apiKey;
+}
+
+function toTextResult(text, details = {}) {
+  return {
+    content: [{ type: 'text', text }],
+    details,
+  };
+}
+
+function ensureNonEmpty(value, fieldName) {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`Missing required field: ${fieldName}`);
+  return text;
+}
+
+async function runGit(pi, args) {
+  if (typeof pi.exec !== 'function') {
+    throw new Error('pi.exec is unavailable in this runtime; cannot run git operations');
+  }
+
+  const result = await pi.exec('git', args);
+  if (result?.code !== 0) {
+    const stderr = String(result?.stderr || '').trim();
+    throw new Error(`git ${args.join(' ')} failed${stderr ? `: ${stderr}` : ''}`);
+  }
+  return result;
+}
+
+async function gitBranchExists(pi, branchName) {
+  if (typeof pi.exec !== 'function') return false;
+  const result = await pi.exec('git', ['rev-parse', '--verify', branchName]);
+  return result?.code === 0;
+}
+
+async function startGitBranchForIssue(pi, branchName, fromRef = 'HEAD', onBranchExists = 'switch') {
+  const exists = await gitBranchExists(pi, branchName);
+
+  if (!exists) {
+    await runGit(pi, ['checkout', '-b', branchName, fromRef || 'HEAD']);
+    return { action: 'created', branchName };
+  }
+
+  if (onBranchExists === 'suffix') {
+    let suffix = 1;
+    let nextName = `${branchName}-${suffix}`;
+    // eslint-disable-next-line no-await-in-loop
+    while (await gitBranchExists(pi, nextName)) {
+      suffix += 1;
+      nextName = `${branchName}-${suffix}`;
+    }
+
+    await runGit(pi, ['checkout', '-b', nextName, fromRef || 'HEAD']);
+    return { action: 'created-suffix', branchName: nextName };
+  }
+
+  await runGit(pi, ['checkout', branchName]);
+  return { action: 'switched', branchName };
+}
+
+function registerLinearIssueTools(pi) {
+  if (typeof pi.registerTool !== 'function') return;
+
+  pi.registerTool({
+    name: 'linear_issue_start',
+    label: 'Linear Issue Start',
+    description: 'Start a Linear issue: create/switch git branch, then move issue to team started workflow state',
+    parameters: {
+      type: 'object',
+      properties: {
+        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
+        branch: { type: 'string', description: 'Optional custom branch name override' },
+        fromRef: { type: 'string', description: 'Optional git ref to branch from (default: HEAD)' },
+        onBranchExists: {
+          type: 'string',
+          enum: ['switch', 'suffix'],
+          description: 'When branch exists: switch to it or create suffixed branch',
+        },
+      },
+      required: ['issue'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = getLinearApiKey();
+      const issue = ensureNonEmpty(params.issue, 'issue');
+      const prepared = await prepareIssueStart(apiKey, issue);
+
+      const desiredBranch = params.branch || prepared.branchName;
+      if (!desiredBranch) {
+        throw new Error(
+          `No branch name resolved for issue ${prepared.issue.identifier}. Provide the 'branch' parameter explicitly.`
+        );
+      }
+
+      const gitResult = await startGitBranchForIssue(
+        pi,
+        desiredBranch,
+        params.fromRef || 'HEAD',
+        params.onBranchExists || 'switch'
+      );
+
+      const updatedIssue = await setIssueState(
+        apiKey,
+        prepared.issue.id,
+        prepared.startedState.id,
+        'IssueStartEquivalent'
+      );
+
+      return toTextResult(
+        `Started issue ${updatedIssue.identifier} (${updatedIssue.id}) -> state ${updatedIssue.state?.name || prepared.startedState?.name}; git ${gitResult.action} '${gitResult.branchName}'`,
+        {
+          issueId: updatedIssue.id,
+          identifier: updatedIssue.identifier,
+          state: updatedIssue.state,
+          startedState: prepared.startedState,
+          git: gitResult,
+        }
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: 'linear_issue_comment_add',
+    label: 'Linear Issue Comment Add',
+    description: 'Add a comment to a Linear issue',
+    parameters: {
+      type: 'object',
+      properties: {
+        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
+        body: { type: 'string', description: 'Comment body (markdown)' },
+        parentCommentId: { type: 'string', description: 'Optional parent comment id for reply' },
+      },
+      required: ['issue', 'body'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = getLinearApiKey();
+      const issue = ensureNonEmpty(params.issue, 'issue');
+      const body = ensureNonEmpty(params.body, 'body');
+      const result = await addIssueComment(apiKey, issue, body, params.parentCommentId);
+
+      return toTextResult(
+        `Added comment to issue ${result.issue.identifier}: commentId=${result.comment.id}`,
+        {
+          issueId: result.issue.id,
+          identifier: result.issue.identifier,
+          commentId: result.comment.id,
+        }
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: 'linear_issue_update',
+    label: 'Linear Issue Update',
+    description: 'Update selected fields of a Linear issue',
+    parameters: {
+      type: 'object',
+      properties: {
+        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
+        title: { type: 'string', description: 'New issue title' },
+        description: { type: 'string', description: 'New issue description' },
+        priority: { type: 'number', description: 'Priority 0..4' },
+        state: { type: 'string', description: 'Target state name or state id' },
+      },
+      required: ['issue'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = getLinearApiKey();
+      const issue = ensureNonEmpty(params.issue, 'issue');
+
+      const result = await updateIssue(apiKey, issue, {
+        title: params.title,
+        description: params.description,
+        priority: params.priority,
+        state: params.state,
+      });
+
+      return toTextResult(
+        `Updated issue ${result.issue.identifier}: ${result.changed.join(', ')}`,
+        {
+          issueId: result.issue.id,
+          identifier: result.issue.identifier,
+          changed: result.changed,
+          state: result.issue.state,
+          priority: result.issue.priority,
+        }
+      );
+    },
+  });
+}
+
 export default function piLinearServiceExtension(pi) {
+  registerLinearIssueTools(pi);
   pi.registerCommand('linear-daemon-setup', {
     description: 'Interactive setup for project daemon config (or pass flags directly)',
     handler: async (argsText, ctx) => {

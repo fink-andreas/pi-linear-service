@@ -39,6 +39,7 @@ The packaged extension (`extensions/pi-linear-service.js`) provides:
 - status/disable commands
 - lifecycle start/stop/restart commands
 - validation feedback before write/apply
+- LLM-callable Linear issue tools (`linear_issue_start`, `linear_issue_comment_add`, `linear_issue_update`) using direct GraphQL API
 
 Validation in extension flow includes:
 - required project ID
@@ -60,6 +61,21 @@ Validation in extension flow includes:
 - `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-help`
+
+### Extension tools (LLM-callable)
+
+- `linear_issue_start` (params: `issue`, optional `branch`, `fromRef`, `onBranchExists`)
+- `linear_issue_comment_add` (params: `issue`, `body`, optional `parentCommentId`)
+- `linear_issue_update` (params: `issue`, optional `title`, `description`, `priority`, `state`)
+
+Tool behavior:
+- Uses `LINEAR_API_KEY` and direct Linear GraphQL API calls.
+- Resolves issue by identifier/id before mutation.
+- `linear_issue_start` also executes git branch flow:
+  - default branch from Linear `issue.branchName`
+  - supports source ref override (`fromRef`)
+  - handles existing branch by `switch` or suffixed create (`onBranchExists=suffix`)
+- Resolves workflow state by team when needed (`start` and `update.state`).
 
 ### CLI control plane (backward compatible)
 
