@@ -1,31 +1,28 @@
-# PLAN - INN-203 interactive extension UI flow
+# PLAN - INN-204 packaging E2E tests and verification
 
 ## Goal
-Add guided in-pi interactive flows for daemon setup and reconfigure, while preserving existing command-line argument mode.
+Provide automated + manual verification for `pi install` packaging flow and extension runtime integration.
 
-## Requirements
-- Separate interactive actions for setup and reconfigure.
-- Collect fields in UI:
-  - project ID (+ optional project name)
-  - repo path (required)
-  - assignee (me|all)
-  - open states
-  - optional runtime fields (timeout, cooldown, provider, model)
-- Show validation feedback before persisting changes.
-- Keep one-project-per-flow behavior.
-- Trigger existing runtime apply path (daemon-control restart/reconfigure behavior).
-- Add manual verification steps documentation.
+## Scope mapping
+- Automated:
+  - package manifest/resource discovery assumptions
+  - install/remove smoke for global + local (`-l`) scopes in isolated temp dirs
+  - cleanup behavior validation in settings files
+- Manual:
+  - `pi list` / `pi config` visibility confirmation
+  - extension command visibility in fresh pi session
+  - systemd-dependent lifecycle checks
 
-## Files involved
-- `extensions/pi-linear-service.js`
-- `test-extension-commands.js`
-- `README.md` (step list for setup/reconfigure flow)
+## Files to change
+- `test-package-manifest.js` (new)
+- `test-pi-install-smoke.js` (new)
+- `package.json` (include tests)
+- `PACKAGING_TEST_PLAN.md` (new command-by-command verification plan)
+- `README.md` (link to verification plan)
 
-## Implementation outline
-1. Build interactive prompt helpers (input/select/confirm) with defaults.
-2. Add pre-write validation (required project id, repo path absolute+exists, assignee/open-state checks, numeric runtime checks).
-3. Enhance setup flow to gather full config interactively when flags are missing.
-4. Enhance reconfigure flow to load existing values and use them as prompt defaults.
-5. Extend tests for interactive setup/reconfigure and validation errors.
-6. Add README step list for both UI flows.
-7. Run full verification and reality check.
+## Implementation steps
+1. Add deterministic manifest/resource test.
+2. Add install/remove smoke test with isolated HOME and project dirs.
+3. Add test plan documenting exact commands and expected outcomes for global/local installs.
+4. Link verification plan from README.
+5. Run full tests and runtime check.

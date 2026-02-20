@@ -47,7 +47,7 @@ Project-local install (writes to `.pi/settings.json` in current repo):
 
 ```bash
 pi install git:github.com/fink-andreas/pi-linear-service -l
-pi list -l
+pi list
 ```
 
 After install, open `pi config` (global or local scope) to enable/disable the packaged extension resource.
@@ -193,7 +193,10 @@ Example:
 npm test
 ```
 
-Runs baseline deterministic checks (config validation, Linear query error handling, RPC client, service CLI, ownership/template checks, and tmux runner checks).
+Runs baseline deterministic checks (including package manifest validation and `pi install` smoke checks in isolated temp dirs).
+
+For full packaging verification (automated + manual checklist), see:
+- `PACKAGING_TEST_PLAN.md`
 
 ## Notes
 
