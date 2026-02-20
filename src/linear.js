@@ -151,24 +151,24 @@ export async function runSmokeQuery(apiKey) {
 }
 
 /**
- * Fetch issues assigned to a user in specific states
+ * Fetch issues in specific states, optionally filtered by assignee.
  * @param {string} apiKey - Linear API key
- * @param {string} assigneeId - Assignee ID to filter by
+ * @param {string|null} assigneeId - Assignee ID to filter by (null = all assignees)
  * @param {Array<string>} openStates - List of state names to include
  * @param {number} limit - Maximum number of issues to fetch
  * @returns {Promise<Object>} Object with issues array, truncated flag
  */
-export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit) {
-  const query = `query FetchAssignedIssues($assigneeId: ID!, $stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      assignee: { id: { eq: $assigneeId } }\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
+export async function fetchIssues(apiKey, assigneeId, openStates, limit) {
+  const assignedQuery = `query FetchAssignedIssues($assigneeId: ID!, $stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      assignee: { id: { eq: $assigneeId } }\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      assignee {\n        id\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
 
-  const variables = {
-    assigneeId,
-    stateNames: openStates,
-    first: limit,
-  };
+  const allAssigneesQuery = `query FetchOpenIssues($stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      assignee {\n        id\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
 
-  const data = await executeQuery(apiKey, query, variables, {
-    operationName: 'FetchAssignedIssues',
+  const variables = assigneeId
+    ? { assigneeId, stateNames: openStates, first: limit }
+    : { stateNames: openStates, first: limit };
+
+  const data = await executeQuery(apiKey, assigneeId ? assignedQuery : allAssigneesQuery, variables, {
+    operationName: assigneeId ? 'FetchAssignedIssues' : 'FetchOpenIssues',
   });
 
   const nodes = data?.issues?.nodes ?? [];
@@ -181,6 +181,7 @@ export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit)
       id: issue.id,
       title: issue.title,
       state: issue.state?.name,
+      assigneeId: issue.assignee?.id,
       project: issue.project?.name,
       projectId: issue.project?.id,
     })),
@@ -199,6 +200,13 @@ export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit)
     issues: nodes,
     truncated,
   };
+}
+
+/**
+ * Backward-compatible wrapper for assignee-only issue queries.
+ */
+export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit) {
+  return fetchIssues(apiKey, assigneeId, openStates, limit);
 }
 
 /**

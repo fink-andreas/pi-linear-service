@@ -8,6 +8,10 @@ import { info, error } from './logger.js';
 
 const UNIT_NAME = 'pi-linear-service.service';
 
+export function getDefaultUnitName() {
+  return UNIT_NAME;
+}
+
 function parseFlagValue(args, names, fallback) {
   for (let i = 0; i < args.length; i += 1) {
     if (names.includes(args[i]) && args[i + 1]) {
@@ -64,6 +68,52 @@ function runSystemctl(args) {
   }
 
   return (result.stdout || '').trim();
+}
+
+export async function startService(args = []) {
+  const options = resolveOptions(args);
+  if (options.noSystemctl) {
+    info('Skipped systemctl start (--no-systemctl)', { unitName: options.unitName });
+    return;
+  }
+  runSystemctl(['start', options.unitName]);
+  info('Systemd user unit started', { unitName: options.unitName });
+}
+
+export async function stopService(args = []) {
+  const options = resolveOptions(args);
+  if (options.noSystemctl) {
+    info('Skipped systemctl stop (--no-systemctl)', { unitName: options.unitName });
+    return;
+  }
+  runSystemctl(['stop', options.unitName]);
+  info('Systemd user unit stopped', { unitName: options.unitName });
+}
+
+export async function restartService(args = []) {
+  const options = resolveOptions(args);
+  if (options.noSystemctl) {
+    info('Skipped systemctl restart (--no-systemctl)', { unitName: options.unitName });
+    return;
+  }
+  runSystemctl(['restart', options.unitName]);
+  info('Systemd user unit restarted', { unitName: options.unitName });
+}
+
+export function isServiceActive(args = []) {
+  const options = resolveOptions(args);
+  if (options.noSystemctl) {
+    return null;
+  }
+
+  const result = spawnSync('systemctl', ['--user', 'is-active', options.unitName], {
+    stdio: 'pipe',
+    encoding: 'utf-8'
+  });
+
+  if (result.status === 0) return true;
+  if (result.status === 3) return false; // inactive
+  return false;
 }
 
 export async function installService(args = []) {

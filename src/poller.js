@@ -4,7 +4,7 @@
 
 import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
-import { runSmokeQuery, fetchAssignedIssues, groupIssuesByProject } from './linear.js';
+import { runSmokeQuery, fetchIssues, groupIssuesByProject } from './linear.js';
 import { createSessionManager, attemptKillUnhealthySession } from './session-manager.js';
 import { RpcSessionManager } from './rpc-session-manager.js';
 
@@ -54,39 +54,46 @@ async function performPoll(config, sessionManager) {
     metrics.errors.push('Linear API smoke query failed');
   }
 
-  // INN-160: Query assigned issues in open states (up to LINEAR_PAGE_LIMIT)
+  // INN-160 + INN-196: Query issues based on configured scope.
   let byProject = new Map();
   try {
-    info('Fetching assigned issues in open states...', {
-      assigneeId: viewerId,
-      openStates: config.linearOpenStates,
+    const scopeQuery = buildScopeQueryPlan(config, viewerId);
+
+    info('Fetching issues for poll scope...', {
+      assigneeId: scopeQuery.assigneeId,
+      openStates: scopeQuery.openStates,
       limit: config.linearPageLimit,
+      projectScoped: scopeQuery.projectScoped,
+      enabledProjectCount: scopeQuery.enabledProjectCount,
     });
 
-    const { issues, truncated } = await fetchAssignedIssues(
+    const { issues, truncated } = await fetchIssues(
       config.linearApiKey,
-      viewerId,
-      config.linearOpenStates,
+      scopeQuery.assigneeId,
+      scopeQuery.openStates,
       config.linearPageLimit
     );
 
-    metrics.issueCount = issues.length;
-    info('Fetched assigned issues', {
-      issueCount: issues.length,
+    const scopedIssues = applyProjectScopeToIssues(issues, config, viewerId);
+
+    metrics.issueCount = scopedIssues.length;
+    info('Fetched and scoped issues', {
+      issueCountRaw: issues.length,
+      issueCountScoped: scopedIssues.length,
       truncated,
     });
 
-    byProject = groupIssuesByProject(issues);
+    byProject = groupIssuesByProject(scopedIssues);
     metrics.projectCount = byProject.size;
     info('Projects with qualifying issues', {
       projectCount: byProject.size,
       projects: Array.from(byProject.keys()),
     });
   } catch (err) {
-    logError('Failed to fetch assigned issues', {
+    logError('Failed to fetch scoped issues', {
       error: err?.message || String(err),
     });
-    metrics.errors.push('Failed to fetch assigned issues');
+    metrics.errors.push('Failed to fetch scoped issues');
   }
 
   // INN-166: Create sessions for projects with qualifying issues (idempotent)
@@ -142,9 +149,19 @@ async function performPoll(config, sessionManager) {
  * @param {Object} config - Configuration object
  * @returns {boolean} True if project should have a session
  */
-function shouldProcessProject(projectId, projectName, config) {
+export function shouldProcessProject(projectId, projectName, config) {
   const filter = config.projectFilter || [];
   const blacklist = config.projectBlacklist || [];
+
+  // Hybrid project-scoped mode: ignore non-configured projects.
+  const configuredProjects = config.projects || {};
+  const hasConfiguredProjects = Object.keys(configuredProjects).length > 0;
+  if (hasConfiguredProjects) {
+    const projectCfg = configuredProjects[projectId];
+    if (!projectCfg || projectCfg.enabled === false) {
+      return false;
+    }
+  }
 
   // Whitelist: only allow projects in PROJECT_FILTER
   // Accept either projectId (UUID) or projectName (human friendly) for convenience.
@@ -159,6 +176,77 @@ function shouldProcessProject(projectId, projectName, config) {
 
   // No filters: process all projects
   return true;
+}
+
+export function buildScopeQueryPlan(config, viewerId) {
+  const projects = config.projects || {};
+  const entries = Object.entries(projects).filter(([, p]) => p?.enabled !== false);
+
+  if (entries.length === 0) {
+    return {
+      assigneeId: viewerId,
+      openStates: config.linearOpenStates,
+      projectScoped: false,
+      enabledProjectCount: 0,
+    };
+  }
+
+  const states = new Set();
+  let requiresAllAssignees = false;
+
+  for (const [, projectCfg] of entries) {
+    const openStates = projectCfg?.scope?.openStates?.length
+      ? projectCfg.scope.openStates
+      : config.linearOpenStates;
+    for (const state of openStates) states.add(state);
+
+    const assigneeMode = projectCfg?.scope?.assignee || 'me';
+    if (assigneeMode === 'all') {
+      requiresAllAssignees = true;
+    }
+  }
+
+  return {
+    assigneeId: requiresAllAssignees ? null : viewerId,
+    openStates: Array.from(states),
+    projectScoped: true,
+    enabledProjectCount: entries.length,
+  };
+}
+
+export function applyProjectScopeToIssues(issues, config, viewerId) {
+  const projects = config.projects || {};
+  const hasConfiguredProjects = Object.keys(projects).length > 0;
+
+  return issues.filter((issue) => {
+    const projectId = issue?.project?.id;
+    if (!projectId) return false;
+
+    if (!hasConfiguredProjects) {
+      return true;
+    }
+
+    const projectCfg = projects[projectId];
+    if (!projectCfg || projectCfg.enabled === false) {
+      return false;
+    }
+
+    const allowedStates = projectCfg?.scope?.openStates?.length
+      ? projectCfg.scope.openStates
+      : config.linearOpenStates;
+    const stateName = issue?.state?.name;
+    if (!allowedStates.includes(stateName)) {
+      return false;
+    }
+
+    const assigneeMode = projectCfg?.scope?.assignee || 'me';
+    if (assigneeMode === 'me') {
+      return issue?.assignee?.id === viewerId;
+    }
+
+    // scope.assignee === 'all'
+    return true;
+  });
 }
 
 /**
@@ -191,7 +279,13 @@ async function createSessionsForProjects(byProject, config, sessionManager) {
       }
 
       const sessionName = `${config.tmuxPrefix}${projectId}`;
-      const ensure = await rpcManager.ensureSession(sessionName, { projectName: projectData.projectName, projectId });
+      const projectCfg = config.projects?.[projectId];
+      const ensure = await rpcManager.ensureSession(sessionName, {
+        projectName: projectData.projectName,
+        projectId,
+        repoPath: projectCfg?.repo?.path,
+        strictRepoMapping: Object.keys(config.projects || {}).length > 0,
+      });
       if (ensure.error) {
         warn('RPC session ensure failed', { sessionName, projectId, error: ensure.error?.message || String(ensure.error) });
         // ensureSession already records cooldown on init failure
@@ -368,6 +462,7 @@ export async function startPollLoop(config) {
         ],
         workspaceRoot: config.rpc?.workspaceRoot || null,
         projectDirOverrides: config.rpc?.projectDirOverrides || {},
+        strictRepoMapping: Object.keys(config.projects || {}).length > 0,
       })
     : await createSessionManager(config);
 

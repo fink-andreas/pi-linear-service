@@ -94,6 +94,7 @@ export function printConfigSummary(config) {
     console.log(`    RPC_PROVIDER: ${config.rpc?.provider || '(default)'}`);
     console.log(`    RPC_MODEL: ${config.rpc?.model || '(default)'}`);
     console.log(`    RPC_PROJECT_DIR_OVERRIDES: ${config.rpc?.projectDirOverrides ? Object.keys(config.rpc.projectDirOverrides).length : 0} entries`);
+    console.log(`    PROJECT_DAEMONS: ${config.projects ? Object.keys(config.projects).length : 0} configured`);
   }
 
   // Legacy session manager configuration (only relevant when MODE=legacy)
@@ -258,6 +259,7 @@ export async function loadConfig() {
     ...envConfig,
     mode: effectiveMode,
     rpc: mergedSettings.rpc,
+    projects: mergedSettings.projects || {},
     legacy: mergedSettings.legacy,
 
     // Backward compatible fields (used by legacy tmux/process code paths)
