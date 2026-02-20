@@ -1,24 +1,31 @@
-# PLAN - INN-201 Phase 2: installable pi package
+# PLAN - INN-202 native pi extension commands
 
 ## Goal
-Make `pi-linear-service` installable with `pi install` (global and local), expose package resources (at least one extension), and keep existing npm/CLI behavior unchanged.
+Add native pi slash commands that wrap existing daemon control/service logic so users can configure and operate `pi-linear-service` from inside pi.
 
-## Scope from issue
-- Add `pi` manifest in `package.json`
-- Add extension resource layout for discovery
-- Ensure git/npm package consumption remains valid
-- Keep `pi-linear-service` CLI backward compatible
-- Update README with explicit `pi install` flows
-- No regression in `npm test`
+## Issue requirements
+- Commands to add:
+  - `/linear-daemon-setup`
+  - `/linear-daemon-reconfigure`
+  - `/linear-daemon-status`
+  - `/linear-daemon-disable`
+  - `/linear-daemon-start`
+  - `/linear-daemon-stop`
+  - `/linear-daemon-restart`
+- Preserve current validation and one-project-daemon-config model.
+- Keep existing CLI behavior unchanged.
+- Support non-interactive args and interactive prompts where useful.
+- Provide clear success/failure notifications.
 
-## Repo areas involved
-- `package.json` (pi manifest + packaged files)
-- `extensions/` (new extension entrypoint)
-- `README.md` (install docs for global/local pi install)
-- Existing runtime/CLI code should remain untouched unless needed
+## Affected files
+- `extensions/pi-linear-service.js` (implement command wrappers)
+- `test-*.js` (add extension command tests)
+- `package.json` (include new test in npm test script)
 
-## Implementation outline
-1. Add package metadata for pi package discovery/loading.
-2. Add a minimal extension file under `extensions/`.
-3. Update README with `pi install` flows (`global` and `-l` local).
-4. Run tests and basic runtime check.
+## Implementation steps
+1. Implement reusable argument parsing in extension command handlers.
+2. Wrap existing daemon/service functions from `src/daemon-control.js`.
+3. Add interactive fallback prompts for missing required setup/reconfigure/status/disable values.
+4. Add success/error notifications and printable status output.
+5. Add tests for command registration, argument mode, interactive mode, and error paths.
+6. Run full test suite + runtime check.
