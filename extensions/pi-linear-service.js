@@ -353,16 +353,18 @@ function registerLinearIssueTools(pi) {
         'IssueStartEquivalent'
       );
 
-      return toTextResult(
-        `Started issue ${updatedIssue.identifier} (${updatedIssue.id}) -> state ${updatedIssue.state?.name || prepared.startedState?.name}; git ${gitResult.action} '${gitResult.branchName}'`,
-        {
-          issueId: updatedIssue.id,
-          identifier: updatedIssue.identifier,
-          state: updatedIssue.state,
-          startedState: prepared.startedState,
-          git: gitResult,
-        }
-      );
+      const compactTitle = String(updatedIssue.title || prepared.issue?.title || '').trim().toLowerCase();
+      const summary = compactTitle
+        ? `Started issue ${updatedIssue.identifier} (${compactTitle})`
+        : `Started issue ${updatedIssue.identifier}`;
+
+      return toTextResult(summary, {
+        issueId: updatedIssue.id,
+        identifier: updatedIssue.identifier,
+        state: updatedIssue.state,
+        startedState: prepared.startedState,
+        git: gitResult,
+      });
     },
   });
 

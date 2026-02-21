@@ -417,8 +417,7 @@ async function testLinearIssueStartToolGitFlow() {
       throw new Error(`Unexpected query in test: ${query}`);
     }, async () => {
       const result = await tool.execute('call-3', { issue: 'ABC-456' });
-      assert.match(result.content[0].text, /Started issue ABC-456/);
-      assert.match(result.content[0].text, /git created/);
+      assert.equal(result.content[0].text, 'Started issue ABC-456 (start me)');
       assert.ok(gitCalls.some((args) => args.join(' ').includes('checkout -b feature/abc-456-start-me HEAD')));
     });
   } finally {
