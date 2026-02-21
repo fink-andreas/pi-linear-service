@@ -284,7 +284,7 @@ async function testLinearToolRequiresApiKey() {
     const pi = createMockPi();
     extension(pi);
     const tool = pi.tools.get('linear_issue_start');
-    await assert.rejects(() => tool.execute('call-1', { issue: 'ABC-123' }), /Missing LINEAR_API_KEY/);
+    await assert.rejects(() => tool.execute('call-1', { issue: 'ABC-123' }), /LINEAR_API_KEY not set/);
   } finally {
     process.env.LINEAR_API_KEY = prev;
   }

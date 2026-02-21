@@ -9,7 +9,7 @@ import {
   daemonStop,
   daemonRestart,
 } from '../src/daemon-control.js';
-import { loadSettings } from '../src/settings.js';
+import { loadSettings, saveSettings } from '../src/settings.js';
 import {
   prepareIssueStart,
   setIssueState,
@@ -246,12 +246,37 @@ async function runStatusWithCapture(args) {
   return captured.trim();
 }
 
-function getLinearApiKey() {
-  const apiKey = process.env.LINEAR_API_KEY;
-  if (!apiKey || !apiKey.trim()) {
-    throw new Error('Missing LINEAR_API_KEY in environment');
+let cachedApiKey = null;
+
+/**
+ * Get Linear API key from environment or settings.
+ * Environment variable takes precedence over settings.
+ * @returns {Promise<string>}
+ */
+async function getLinearApiKey() {
+  // Check environment first
+  const envKey = process.env.LINEAR_API_KEY;
+  if (envKey && envKey.trim()) {
+    return envKey.trim();
   }
-  return apiKey;
+
+  // Check cached value
+  if (cachedApiKey) {
+    return cachedApiKey;
+  }
+
+  // Load from settings
+  try {
+    const settings = await loadSettings();
+    if (settings.linearApiKey && settings.linearApiKey.trim()) {
+      cachedApiKey = settings.linearApiKey.trim();
+      return cachedApiKey;
+    }
+  } catch (err) {
+    // Settings load failed, continue to error
+  }
+
+  throw new Error('LINEAR_API_KEY not set. Use /linear-daemon-config --api-key <key> or set environment variable.');
 }
 
 /**
@@ -276,7 +301,7 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   // If projectName provided, resolve it to projectId
   if (projectName) {
     try {
-      const apiKey = getLinearApiKey();
+      const apiKey = await getLinearApiKey();
       const resolved = await resolveProjectRef(apiKey, projectName);
       projectId = resolved.id;
       upsertFlag(args, '--id', projectId);
@@ -295,7 +320,7 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   let projects = null;
   let apiKey = null;
   try {
-    apiKey = getLinearApiKey();
+    apiKey = await getLinearApiKey();
     projects = await fetchProjects(apiKey);
   } catch (err) {
     // API key not available or API error - fall back to simple input
@@ -325,7 +350,7 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   if (!input) {
     if (ctx?.hasUI) {
       if (!apiKey) {
-        ctx.ui.notify('LINEAR_API_KEY not set. Set it in your environment to enable project list selection, or provide a project ID directly.', 'error');
+        ctx.ui.notify('LINEAR_API_KEY not set. Use /linear-daemon-config --api-key <key> to store it in settings.', 'error');
       } else {
         ctx.ui.notify('Please enter a project name or ID', 'error');
       }
@@ -437,7 +462,7 @@ function registerLinearIssueTools(pi) {
       additionalProperties: false,
     },
     async execute(_toolCallId, params) {
-      const apiKey = getLinearApiKey();
+      const apiKey = await getLinearApiKey();
       const issue = ensureNonEmpty(params.issue, 'issue');
       const prepared = await prepareIssueStart(apiKey, issue);
 
@@ -492,7 +517,7 @@ function registerLinearIssueTools(pi) {
       additionalProperties: false,
     },
     async execute(_toolCallId, params) {
-      const apiKey = getLinearApiKey();
+      const apiKey = await getLinearApiKey();
       const issue = ensureNonEmpty(params.issue, 'issue');
       const body = ensureNonEmpty(params.body, 'body');
       const result = await addIssueComment(apiKey, issue, body, params.parentCommentId);
@@ -525,7 +550,7 @@ function registerLinearIssueTools(pi) {
       additionalProperties: false,
     },
     async execute(_toolCallId, params) {
-      const apiKey = getLinearApiKey();
+      const apiKey = await getLinearApiKey();
       const issue = ensureNonEmpty(params.issue, 'issue');
 
       const result = await updateIssue(apiKey, issue, {
@@ -668,10 +693,48 @@ export default function piLinearServiceExtension(pi) {
     }),
   });
 
+  pi.registerCommand('linear-daemon-config', {
+    description: 'Configure extension settings (e.g., LINEAR_API_KEY)',
+    handler: async (argsText, ctx) => {
+      const args = parseArgs(argsText);
+      const apiKey = readFlag(args, '--api-key');
+
+      if (apiKey) {
+        const settings = await loadSettings();
+        settings.linearApiKey = apiKey;
+        await saveSettings(settings);
+        // Clear cache so new key is picked up
+        cachedApiKey = null;
+        if (ctx?.hasUI) {
+          ctx.ui.notify('LINEAR_API_KEY saved to settings', 'info');
+        }
+        return;
+      }
+
+      // Show current config
+      const settings = await loadSettings();
+      const hasKey = !!(settings.linearApiKey || process.env.LINEAR_API_KEY);
+      const keySource = process.env.LINEAR_API_KEY ? 'environment' : (settings.linearApiKey ? 'settings' : 'not set');
+
+      pi.sendMessage({
+        customType: 'pi-linear-service',
+        content: `Configuration:
+  LINEAR_API_KEY: ${hasKey ? 'configured' : 'not set'} (source: ${keySource})
+  
+To set API key:
+  /linear-daemon-config --api-key lin_xxx
+
+Note: Environment variable takes precedence over settings file.`,
+        display: true,
+      });
+    },
+  });
+
   pi.registerCommand('linear-daemon-help', {
     description: 'Show pi-linear-service daemon commands',
     handler: async (_args, ctx) => {
       const lines = [
+        '/linear-daemon-config --api-key <key>  (store LINEAR_API_KEY in settings)',
         '/linear-daemon-setup [--id <id> | --name <name>]  (interactive if no args)',
         '/linear-daemon-reconfigure [--id <id> | --name <name>]',
         '/linear-daemon-status [--id <id> | --name <name>]  (shows all if no project)',
@@ -680,7 +743,7 @@ export default function piLinearServiceExtension(pi) {
         '/linear-daemon-stop [--unit-name <name>] [--no-systemctl]',
         '/linear-daemon-restart [--unit-name <name>] [--no-systemctl]',
         '',
-        'Note: --name resolves via Linear API (requires LINEAR_API_KEY)',
+        'Note: --name requires LINEAR_API_KEY (set via /linear-daemon-config or env)',
       ];
 
       if (ctx.hasUI) {

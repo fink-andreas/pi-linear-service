@@ -14,8 +14,10 @@ import { debug, warn, error as logError } from './logger.js';
  */
 export function getDefaultSettings() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'rpc',
+    // API key can be stored here instead of environment variable
+    linearApiKey: null,
     projects: {},
     rpc: {
       timeoutMs: 120000,
@@ -101,6 +103,14 @@ function migrateSettings(settings) {
     }
 
     migrated.schemaVersion = 2;
+  }
+
+  // Migration v2 -> v3: Add linearApiKey field
+  if (migrated.schemaVersion < 3) {
+    if (migrated.linearApiKey === undefined) {
+      migrated.linearApiKey = null;
+    }
+    migrated.schemaVersion = 3;
   }
 
   return migrated;
