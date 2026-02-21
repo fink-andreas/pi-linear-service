@@ -210,15 +210,10 @@ async function testInteractiveReconfigureLoadsDefaultsAndUpdates() {
           if (label.includes('Project name')) return 'Project R';
           if (label.includes('Repository')) return repoB;
           if (label.includes('Open states')) return 'Backlog,In Progress';
-          if (label.includes('Timeout')) return '60000';
-          if (label.includes('Restart cooldown')) return '90';
           return '';
         },
         async select() {
           return 'me';
-        },
-        async confirm(title) {
-          return title.includes('Runtime');
         },
         notify() {},
       },
@@ -229,8 +224,6 @@ async function testInteractiveReconfigureLoadsDefaultsAndUpdates() {
     const settings = JSON.parse(await readFile(getSettingsPath(), 'utf-8'));
     assert.equal(settings.projects['proj-r'].repo.path, repoB);
     assert.deepEqual(settings.projects['proj-r'].scope.openStates, ['Backlog', 'In Progress']);
-    assert.equal(settings.projects['proj-r'].runtime.timeoutMs, 60000);
-    assert.equal(settings.projects['proj-r'].runtime.restartCooldownSec, 90);
 
     const repoPrompt = placeholders.find((p) => p.label.includes('Repository absolute path'));
     assert.equal(repoPrompt.placeholder, repoA);

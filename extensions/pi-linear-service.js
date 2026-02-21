@@ -114,36 +114,9 @@ async function promptSelectAssignee(ctx, currentValue = 'me') {
 }
 
 async function maybePromptRuntime(ctx, args, defaults = {}) {
-  if (!ctx?.hasUI || !ctx.ui?.confirm) return;
-
-  const hasRuntimeArgs = [
-    '--poll-interval-sec',
-    '--timeout-ms',
-    '--restart-cooldown-sec',
-    '--provider',
-    '--model',
-  ].some((flag) => readFlag(args, flag) !== undefined);
-
-  if (hasRuntimeArgs) return;
-
-  const shouldConfigure = await ctx.ui.confirm(
-    'Runtime options',
-    'Configure runtime overrides (optional)?'
-  );
-
-  if (!shouldConfigure) return;
-
-  const poll = await promptInput(ctx, 'Poll interval seconds (optional)', defaults.pollIntervalSec ?? '');
-  const timeout = await promptInput(ctx, 'Timeout ms (optional)', defaults.timeoutMs ?? '');
-  const cooldown = await promptInput(ctx, 'Restart cooldown seconds (optional)', defaults.restartCooldownSec ?? '');
-  const provider = await promptInput(ctx, 'Provider (optional)', defaults.provider ?? '');
-  const model = await promptInput(ctx, 'Model (optional)', defaults.model ?? '');
-
-  if (poll) upsertFlag(args, '--poll-interval-sec', poll);
-  if (timeout) upsertFlag(args, '--timeout-ms', timeout);
-  if (cooldown) upsertFlag(args, '--restart-cooldown-sec', cooldown);
-  if (provider) upsertFlag(args, '--provider', provider);
-  if (model) upsertFlag(args, '--model', model);
+  // Runtime options are optional - skip prompting by default
+  // Users can provide these via CLI flags if needed
+  return;
 }
 
 function effectiveConfigFromArgs(args, existing = null) {
