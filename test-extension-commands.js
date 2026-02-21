@@ -105,13 +105,13 @@ async function testSetupAndStatusCommandPaths() {
     };
 
     const projectId = 'proj-123';
-    await setup(`--project-id ${projectId} --repo-path ${repoPath} --open-states "Todo,In Progress" --no-systemctl`, ctx);
+    await setup(`--id ${projectId} --repo-path ${repoPath} --open-states "Todo,In Progress" --no-systemctl`, ctx);
 
     const settings = JSON.parse(await readFile(getSettingsPath(), 'utf-8'));
     assert.equal(settings.projects[projectId].repo.path, repoPath);
     assert.deepEqual(settings.projects[projectId].scope.openStates, ['Todo', 'In Progress']);
 
-    await status(`--project-id ${projectId} --no-systemctl`, ctx);
+    await status(`--id ${projectId} --no-systemctl`, ctx);
     assert.ok(pi.sentMessages.length > 0, 'status command should send status output message');
     assert.match(pi.sentMessages[0].content, /"configured": true/);
 
@@ -169,7 +169,7 @@ async function testInteractiveReconfigureLoadsDefaultsAndUpdates() {
     const setup = pi.commands.get('linear-daemon-setup').handler;
     const reconfigure = pi.commands.get('linear-daemon-reconfigure').handler;
 
-    await setup(`--project-id proj-r --repo-path ${repoA} --open-states "Todo,In Progress" --no-systemctl`, { hasUI: false });
+    await setup(`--id proj-r --repo-path ${repoA} --open-states "Todo,In Progress" --no-systemctl`, { hasUI: false });
 
     const placeholders = [];
     const ctx = {
@@ -215,7 +215,7 @@ async function testValidationFailureForMissingRepoPath() {
   const setup = pi.commands.get('linear-daemon-setup').handler;
 
   await assert.rejects(
-    () => setup('--project-id test-project --repo-path /does/not/exist --no-systemctl', { hasUI: false }),
+    () => setup('--id test-project --repo-path /does/not/exist --no-systemctl', { hasUI: false }),
     /Configured repo path does not exist/
   );
 }
@@ -228,7 +228,7 @@ async function testFailurePathActionableMessage() {
 
   await assert.rejects(
     () => status('', { hasUI: false }),
-    /Missing required argument --project-id/
+    /Missing required argument --id/
   );
 }
 

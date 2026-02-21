@@ -33,12 +33,12 @@ function parseIntOrUndefined(v) {
 
 function ensureProjectId(projectId) {
   if (!projectId || !projectId.trim()) {
-    throw new Error('Missing required argument --project-id');
+    throw new Error('Missing required argument --id');
   }
 }
 
 function buildProjectConfigFromArgs(args, existing = null) {
-  const projectName = parseFlagValue(args, ['--project-name']);
+  const projectName = parseFlagValue(args, ['--name']);
   const repoPath = parseFlagValue(args, ['--repo-path']);
   const openStatesArg = parseFlagValue(args, ['--open-states']);
   const assignee = parseFlagValue(args, ['--assignee'], existing?.scope?.assignee || 'me');
@@ -93,7 +93,7 @@ async function applyRuntimeChange(actionName, options) {
 }
 
 export async function setupProjectDaemon(args = []) {
-  const projectId = parseFlagValue(args, ['--project-id']);
+  const projectId = parseFlagValue(args, ['--id']);
   ensureProjectId(projectId);
 
   const settings = await loadSettings();
@@ -117,7 +117,7 @@ export async function setupProjectDaemon(args = []) {
 }
 
 export async function reconfigureProjectDaemon(args = []) {
-  const projectId = parseFlagValue(args, ['--project-id']);
+  const projectId = parseFlagValue(args, ['--id']);
   ensureProjectId(projectId);
 
   const settings = await loadSettings();
@@ -140,7 +140,7 @@ export async function reconfigureProjectDaemon(args = []) {
 }
 
 export async function disableProjectDaemon(args = []) {
-  const projectId = parseFlagValue(args, ['--project-id']);
+  const projectId = parseFlagValue(args, ['--id']);
   ensureProjectId(projectId);
 
   const settings = await loadSettings();
@@ -163,7 +163,7 @@ export async function disableProjectDaemon(args = []) {
 }
 
 export async function daemonStatus(args = []) {
-  const projectId = parseFlagValue(args, ['--project-id']);
+  const projectId = parseFlagValue(args, ['--id']);
   ensureProjectId(projectId);
 
   const settings = await loadSettings();

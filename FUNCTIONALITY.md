@@ -55,8 +55,8 @@ Validation in extension flow includes:
 
 - `/linear-daemon-setup`
 - `/linear-daemon-reconfigure`
-- `/linear-daemon-status --project-id <id>`
-- `/linear-daemon-disable --project-id <id>`
+- `/linear-daemon-status --id <id>`
+- `/linear-daemon-disable --id <id>`
 - `/linear-daemon-start [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`

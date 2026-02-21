@@ -36,7 +36,7 @@ Provide project id + repo path (absolute path required), then confirm success.
 
 ### 6) Confirm status
 ```text
-/linear-daemon-status --project-id <project-id>
+/linear-daemon-status --id <project-id>
 ```
 
 ---
@@ -103,7 +103,7 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
    ```
 7. Check status:
    ```text
-   /linear-daemon-status --project-id <project-id>
+   /linear-daemon-status --id <project-id>
    ```
 8. Reconfigure later if needed:
    ```text
@@ -119,8 +119,8 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
 
 - `/linear-daemon-setup`
 - `/linear-daemon-reconfigure`
-- `/linear-daemon-status --project-id <id>`
-- `/linear-daemon-disable --project-id <id>`
+- `/linear-daemon-status --id <id>`
+- `/linear-daemon-disable --id <id>`
 - `/linear-daemon-start [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
@@ -153,9 +153,9 @@ You can still run purely via npm + shell commands:
 
 ```bash
 npm i @fink-andreas/pi-linear-service
-pi-linear-service daemon setup --project-id <id> --repo-path <path> --open-states "Todo,In Progress"
+pi-linear-service daemon setup --id <id> --repo-path <path> --open-states "Todo,In Progress"
 pi-linear-service daemon start
-pi-linear-service daemon status --project-id <id>
+pi-linear-service daemon status --id <id>
 ```
 
 CLI behavior remains backward compatible.

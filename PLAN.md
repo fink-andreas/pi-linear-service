@@ -1,11 +1,11 @@
 # PLAN: Project Name Resolution and Interactive Project Selection
 
 ## Problem Statement
-Current daemon commands (`linear-daemon-status`, `linear-daemon-setup`, etc.) require `--project-id` which exposes users to cryptic Linear project IDs (UUIDs). This is not user-friendly.
+Current daemon commands (`linear-daemon-status`, `linear-daemon-setup`, etc.) require `--id` which exposes users to cryptic Linear project IDs (UUIDs). This is not user-friendly.
 
 ## Solution
 1. **Accept project name as alternative to project ID**
-   - Add `--project-name` flag as alternative to `--project-id`
+   - Add `--name` flag as alternative to `--id`
    - Automatically resolve project name to project ID via Linear API
 
 2. **Interactive project selection**
@@ -22,7 +22,7 @@ Current daemon commands (`linear-daemon-status`, `linear-daemon-setup`, etc.) re
 ### extensions/pi-linear-service.js
 - Add helper `collectProjectRefWithUI(ctx, args)` - Interactive project selection
 - Modify command handlers to:
-  - Accept `--project-name` as alternative to `--project-id`
+  - Accept `--name` as alternative to `--id`
   - Use interactive selection when no reference provided
   - Resolve project name to ID before proceeding
 
@@ -58,8 +58,8 @@ query Projects {
 ```
 
 ### Resolution Logic
-- If `--project-id` is provided, use it directly
-- If `--project-name` is provided, resolve via API:
+- If `--id` is provided, use it directly
+- If `--name` is provided, resolve via API:
   - First try exact match on name
   - Then try case-insensitive match on name
   - Then try match on project key
