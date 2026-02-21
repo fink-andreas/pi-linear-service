@@ -3,7 +3,11 @@
  */
 
 import dotenv from 'dotenv';
+import { resolve } from 'path';
 import { loadSettings, mergeSettingsWithEnv, getDefaultSettings } from './settings.js';
+
+// Determine .env file path (dotenv uses process.cwd() by default)
+const envPath = resolve(process.cwd(), '.env');
 
 // Load .env file if it exists
 dotenv.config();
@@ -132,7 +136,8 @@ function parseEnvConfig() {
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}. ` +
-      'Please create a .env file or set these variables before starting the service.'
+      `Expected .env file location: ${envPath}. ` +
+      'Create this file or set the variables in your environment before starting the service.'
     );
   }
 
