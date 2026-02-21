@@ -156,9 +156,9 @@ function effectiveConfigFromArgs(args, existing = null) {
   };
 }
 
-async function collectSetupArgsWithUI(ctx, args) {
+async function collectSetupArgsWithUI(pi, ctx, args) {
   // First, collect project reference if not provided
-  await collectProjectRefWithUI(ctx, args);
+  await collectProjectRefWithUI(pi, ctx, args);
 
   if (!readFlag(args, '--id')) return;
 
@@ -174,11 +174,11 @@ async function collectSetupArgsWithUI(ctx, args) {
   await maybePromptRuntime(ctx, args);
 }
 
-async function collectReconfigureArgsWithUI(ctx, args) {
+async function collectReconfigureArgsWithUI(pi, ctx, args) {
   if (!ctx?.hasUI) return null;
 
   // Use collectProjectRefWithUI to resolve project reference
-  const projectRef = await collectProjectRefWithUI(ctx, args);
+  const projectRef = await collectProjectRefWithUI(pi, ctx, args);
   if (!projectRef) return null;
 
   const projectId = projectRef.projectId;
@@ -252,11 +252,12 @@ function getLinearApiKey() {
  * Resolves --name to --id if needed.
  * In interactive mode, shows a list of available projects.
  *
+ * @param {Object} pi - pi extension API
  * @param {Object} ctx - Extension context
  * @param {Array<string>} args - Parsed args array
  * @returns {Promise<{projectId: string, projectName: string}|null>}
  */
-async function collectProjectRefWithUI(ctx, args) {
+async function collectProjectRefWithUI(pi, ctx, args) {
   let projectId = readFlag(args, '--id');
   const projectName = readFlag(args, '--name');
 
@@ -579,7 +580,7 @@ export default function piLinearServiceExtension(pi) {
     description: 'Interactive setup for project daemon config (use --id or --name, or run interactively)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      await collectSetupArgsWithUI(ctx, args);
+      await collectSetupArgsWithUI(pi, ctx, args);
 
       const effective = effectiveConfigFromArgs(args);
       effective.openStates = effective.openStates.length > 0 ? effective.openStates : ['Todo', 'In Progress'];
@@ -595,7 +596,7 @@ export default function piLinearServiceExtension(pi) {
     description: 'Interactive reconfigure flow for existing project daemon config (use --id or --name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      const existing = await collectReconfigureArgsWithUI(ctx, args);
+      const existing = await collectReconfigureArgsWithUI(pi, ctx, args);
 
       const effective = effectiveConfigFromArgs(args, existing);
       if (effective.openStates.length === 0 && existing?.scope?.openStates?.length) {
@@ -613,7 +614,7 @@ export default function piLinearServiceExtension(pi) {
     description: 'Show daemon config status for a project (use --id or --name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      const projectRef = await collectProjectRefWithUI(ctx, args);
+      const projectRef = await collectProjectRefWithUI(pi, ctx, args);
 
       if (!projectRef) {
         throw new Error('Missing required argument --id or --name');
@@ -636,7 +637,7 @@ export default function piLinearServiceExtension(pi) {
     description: 'Disable daemon config for a project (use --id or --name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      const projectRef = await collectProjectRefWithUI(ctx, args);
+      const projectRef = await collectProjectRefWithUI(pi, ctx, args);
 
       if (!projectRef) {
         throw new Error('Missing required argument --id or --name');
