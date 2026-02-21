@@ -137,9 +137,7 @@ async function collectSetupArgsWithUI(pi, ctx, args) {
 
   if (!readFlag(args, '--id')) return;
 
-  const projectName = readFlag(args, '--name');
-
-  // Only prompt for repo path if not already provided
+  // Only prompt for values not already provided via CLI
   if (!readFlag(args, '--repo-path')) {
     const cwd = process.cwd();
     const repoPath = await promptInput(ctx, 'Repository absolute path', cwd);
@@ -147,21 +145,24 @@ async function collectSetupArgsWithUI(pi, ctx, args) {
     upsertFlag(args, '--repo-path', repoPath || cwd);
   }
 
-  const assignee = await promptSelectAssignee(ctx, 'me');
-  const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
+  if (!readFlag(args, '--assignee')) {
+    const assignee = await promptSelectAssignee(ctx, 'me');
+    if (assignee) upsertFlag(args, '--assignee', assignee);
+  }
 
-  if (assignee) upsertFlag(args, '--assignee', assignee);
-  if (openStates) upsertFlag(args, '--open-states', openStates);
-
-  await maybePromptRuntime(ctx, args);
+  if (!readFlag(args, '--open-states')) {
+    const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
+    if (openStates) upsertFlag(args, '--open-states', openStates);
+  }
 }
 
 async function collectReconfigureArgsWithUI(pi, ctx, args) {
-  if (!ctx?.hasUI) return null;
-
-  // Use collectProjectRefWithUI to resolve project reference
+  // First, resolve project reference if needed
   const projectRef = await collectProjectRefWithUI(pi, ctx, args);
-  if (!projectRef) return null;
+  if (!projectRef) {
+    if (!ctx?.hasUI) return null;
+    return null;
+  }
 
   const projectId = projectRef.projectId;
   const settings = await loadSettings();
@@ -170,21 +171,29 @@ async function collectReconfigureArgsWithUI(pi, ctx, args) {
     throw new Error(`Project daemon does not exist for projectId=${projectId}. Run setup first.`);
   }
 
-  const projectName = await promptInput(ctx, 'Project name (optional)', existing.projectName || projectRef.projectName || '');
-  const repoPath = await promptInput(ctx, 'Repository absolute path', existing.repo?.path || '');
-  const assignee = await promptSelectAssignee(ctx, existing.scope?.assignee || 'me');
-  const openStates = await promptInput(
-    ctx,
-    'Open states (comma-separated)',
-    (existing.scope?.openStates || ['Todo', 'In Progress']).join(',')
-  );
+  // If no UI, just return existing - flags were provided via CLI
+  if (!ctx?.hasUI) return existing;
 
-  if (projectName) upsertFlag(args, '--name', projectName);
-  if (repoPath) upsertFlag(args, '--repo-path', repoPath);
-  if (assignee) upsertFlag(args, '--assignee', assignee);
-  if (openStates) upsertFlag(args, '--open-states', openStates);
+  // Only prompt for values not already provided via CLI
+  if (!readFlag(args, '--repo-path')) {
+    const repoPath = await promptInput(ctx, 'Repository absolute path', existing.repo?.path || '');
+    if (repoPath) upsertFlag(args, '--repo-path', repoPath);
+  }
 
-  await maybePromptRuntime(ctx, args, existing.runtime || {});
+  if (!readFlag(args, '--assignee')) {
+    const assignee = await promptSelectAssignee(ctx, existing.scope?.assignee || 'me');
+    if (assignee) upsertFlag(args, '--assignee', assignee);
+  }
+
+  if (!readFlag(args, '--open-states')) {
+    const openStates = await promptInput(
+      ctx,
+      'Open states (comma-separated)',
+      (existing.scope?.openStates || ['Todo', 'In Progress']).join(',')
+    );
+    if (openStates) upsertFlag(args, '--open-states', openStates);
+  }
+
   return existing;
 }
 
