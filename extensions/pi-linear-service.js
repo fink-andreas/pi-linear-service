@@ -562,6 +562,15 @@ export default function piLinearServiceExtension(pi) {
       const args = parseArgs(argsText);
       await collectSetupArgsWithUI(pi, ctx, args);
 
+      // Check if user canceled or no project was provided
+      if (!readFlag(args, '--id')) {
+        if (ctx?.hasUI) {
+          ctx.ui.notify('Setup canceled', 'info');
+          return;
+        }
+        throw new Error('Missing required argument --id or --name');
+      }
+
       const effective = effectiveConfigFromArgs(args);
       effective.openStates = effective.openStates.length > 0 ? effective.openStates : ['Todo', 'In Progress'];
       validateProjectConfigInput(effective);
