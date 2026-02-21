@@ -391,11 +391,14 @@ function resolveStateIdFromInput(states, stateInput) {
   const byName = states.find((s) => String(s.name || '').toLowerCase() === lower);
   if (byName) return byName.id;
 
+  const byType = states.find((s) => String(s.type || '').toLowerCase() === lower);
+  if (byType) return byType.id;
+
   throw new Error(`State not found in team workflow: ${target}`);
 }
 
 async function issueUpdateMutation(apiKey, issueId, input, operationName = 'IssueUpdate') {
-  const mutation = `mutation IssueUpdate($id: ID!, $input: IssueUpdateInput!) {
+  const mutation = `mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
     issueUpdate(id: $id, input: $input) {
       success
       issue {
