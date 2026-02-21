@@ -498,6 +498,73 @@ export async function addIssueComment(apiKey, issue, body, parentCommentId = und
   };
 }
 
+/**
+ * Fetch all accessible projects from Linear API
+ * @param {string} apiKey - Linear API key
+ * @returns {Promise<Array<{id: string, name: string}>>}
+ */
+export async function fetchProjects(apiKey) {
+  const query = `query Projects {
+    projects(first: 50) {
+      nodes {
+        id
+        name
+      }
+    }
+  }`;
+
+  const data = await executeQuery(apiKey, query, {}, { operationName: 'Projects' });
+  const nodes = data?.projects?.nodes ?? [];
+
+  debug('Fetched Linear projects', {
+    projectCount: nodes.length,
+    projects: nodes.map((p) => ({ id: p.id, name: p.name })),
+  });
+
+  return nodes;
+}
+
+/**
+ * Resolve a project reference (name or ID) to a project ID
+ * @param {string} apiKey - Linear API key
+ * @param {string} projectRef - Project name or ID
+ * @returns {Promise<{id: string, name: string}>}
+ */
+export async function resolveProjectRef(apiKey, projectRef) {
+  const ref = String(projectRef || '').trim();
+  if (!ref) {
+    throw new Error('Missing project reference');
+  }
+
+  // If it looks like a Linear ID (UUID), try direct lookup first
+  if (isLinearId(ref)) {
+    const projects = await fetchProjects(apiKey);
+    const byId = projects.find((p) => p.id === ref);
+    if (byId) {
+      return { id: byId.id, name: byId.name };
+    }
+    throw new Error(`Project not found with ID: ${ref}`);
+  }
+
+  // Otherwise, search by name
+  const projects = await fetchProjects(apiKey);
+
+  // Try exact name match
+  const exactName = projects.find((p) => p.name === ref);
+  if (exactName) {
+    return { id: exactName.id, name: exactName.name };
+  }
+
+  // Try case-insensitive name match
+  const lowerRef = ref.toLowerCase();
+  const insensitiveName = projects.find((p) => p.name?.toLowerCase() === lowerRef);
+  if (insensitiveName) {
+    return { id: insensitiveName.id, name: insensitiveName.name };
+  }
+
+  throw new Error(`Project not found: ${ref}. Available projects: ${projects.map((p) => p.name).join(', ')}`);
+}
+
 export async function updateIssue(apiKey, issue, patch = {}) {
   const targetIssue = await resolveIssue(apiKey, issue);
   const nextPatch = {};

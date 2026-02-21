@@ -15,6 +15,8 @@ import {
   setIssueState,
   addIssueComment,
   updateIssue,
+  fetchProjects,
+  resolveProjectRef,
 } from '../src/linear.js';
 
 function parseArgs(argsString) {
@@ -155,16 +157,16 @@ function effectiveConfigFromArgs(args, existing = null) {
 }
 
 async function collectSetupArgsWithUI(ctx, args) {
-  if (readFlag(args, '--project-id')) return;
+  // First, collect project reference if not provided
+  await collectProjectRefWithUI(ctx, args);
 
-  const projectId = await promptInput(ctx, 'Linear project ID');
-  const projectName = await promptInput(ctx, 'Project name (optional)');
+  if (!readFlag(args, '--project-id')) return;
+
+  const projectName = readFlag(args, '--project-name');
   const repoPath = await promptInput(ctx, 'Repository absolute path');
   const assignee = await promptSelectAssignee(ctx, 'me');
-  const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo,In Progress');
+  const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
 
-  if (projectId) upsertFlag(args, '--project-id', projectId);
-  if (projectName) upsertFlag(args, '--project-name', projectName);
   if (repoPath) upsertFlag(args, '--repo-path', repoPath);
   if (assignee) upsertFlag(args, '--assignee', assignee);
   if (openStates) upsertFlag(args, '--open-states', openStates);
@@ -175,21 +177,18 @@ async function collectSetupArgsWithUI(ctx, args) {
 async function collectReconfigureArgsWithUI(ctx, args) {
   if (!ctx?.hasUI) return null;
 
-  let projectId = readFlag(args, '--project-id');
-  if (!projectId) {
-    projectId = await promptInput(ctx, 'Linear project ID to reconfigure');
-    if (projectId) upsertFlag(args, '--project-id', projectId);
-  }
+  // Use collectProjectRefWithUI to resolve project reference
+  const projectRef = await collectProjectRefWithUI(ctx, args);
+  if (!projectRef) return null;
 
-  if (!projectId) return null;
-
+  const projectId = projectRef.projectId;
   const settings = await loadSettings();
   const existing = settings.projects?.[projectId] || null;
   if (!existing) {
     throw new Error(`Project daemon does not exist for projectId=${projectId}. Run setup first.`);
   }
 
-  const projectName = await promptInput(ctx, 'Project name (optional)', existing.projectName || '');
+  const projectName = await promptInput(ctx, 'Project name (optional)', existing.projectName || projectRef.projectName || '');
   const repoPath = await promptInput(ctx, 'Repository absolute path', existing.repo?.path || '');
   const assignee = await promptSelectAssignee(ctx, existing.scope?.assignee || 'me');
   const openStates = await promptInput(
@@ -246,6 +245,112 @@ function getLinearApiKey() {
     throw new Error('Missing LINEAR_API_KEY in environment');
   }
   return apiKey;
+}
+
+/**
+ * Collect project reference from args or UI.
+ * Resolves --project-name to --project-id if needed.
+ * In interactive mode, shows a list of available projects.
+ *
+ * @param {Object} ctx - Extension context
+ * @param {Array<string>} args - Parsed args array
+ * @returns {Promise<{projectId: string, projectName: string}|null>}
+ */
+async function collectProjectRefWithUI(ctx, args) {
+  let projectId = readFlag(args, '--project-id');
+  const projectName = readFlag(args, '--project-name');
+
+  // If projectId already provided, return it
+  if (projectId) {
+    return { projectId, projectName: projectName || null };
+  }
+
+  // If projectName provided, resolve it to projectId
+  if (projectName) {
+    try {
+      const apiKey = getLinearApiKey();
+      const resolved = await resolveProjectRef(apiKey, projectName);
+      projectId = resolved.id;
+      upsertFlag(args, '--project-id', projectId);
+      return { projectId, projectName: resolved.name };
+    } catch (err) {
+      throw new Error(`Failed to resolve project name '${projectName}': ${err.message}`);
+    }
+  }
+
+  // No reference provided - try interactive selection
+  if (!ctx?.hasUI) {
+    return null;
+  }
+
+  try {
+    const apiKey = getLinearApiKey();
+    const projects = await fetchProjects(apiKey);
+
+    if (projects.length === 0) {
+      ctx.ui.notify('No Linear projects found', 'error');
+      return null;
+    }
+
+    // Build selection list
+    const options = projects.map((p) => ({
+      label: p.name,
+      value: p.id,
+    }));
+
+    // Use ui.select for project selection
+    if (ctx.ui.select) {
+      const selectedId = await ctx.ui.select('Select a Linear project', options);
+      if (selectedId) {
+        const selected = projects.find((p) => p.id === selectedId);
+        projectId = selectedId;
+        upsertFlag(args, '--project-id', projectId);
+        if (selected) {
+          upsertFlag(args, '--project-name', selected.name);
+        }
+        return { projectId, projectName: selected?.name || null };
+      }
+    } else {
+      // Fallback: show list and ask for input
+      const lines = ['Available Linear projects:'];
+      projects.forEach((p, i) => {
+        lines.push(`  ${i + 1}. ${p.name}`);
+      });
+      lines.push('');
+      lines.push('Enter project name or number:');
+
+      pi.sendMessage({
+        customType: 'pi-linear-service',
+        content: lines.join('\n'),
+        display: true,
+      });
+
+      const input = await promptInput(ctx, 'Project name or number');
+      if (!input) return null;
+
+      // Try to match by number
+      const num = Number.parseInt(input, 10);
+      if (!Number.isNaN(num) && num >= 1 && num <= projects.length) {
+        const selected = projects[num - 1];
+        projectId = selected.id;
+        upsertFlag(args, '--project-id', projectId);
+        upsertFlag(args, '--project-name', selected.name);
+        return { projectId, projectName: selected.name };
+      }
+
+      // Try to resolve by name
+      const resolved = await resolveProjectRef(apiKey, input);
+      projectId = resolved.id;
+      upsertFlag(args, '--project-id', projectId);
+      upsertFlag(args, '--project-name', resolved.name);
+      return { projectId, projectName: resolved.name };
+    }
+  } catch (err) {
+    ctx.ui.notify(`Failed to fetch projects: ${err.message}`, 'error');
+    return null;
+  }
+
+  return null;
 }
 
 function toTextResult(text, details = {}) {
@@ -458,7 +563,7 @@ function registerLinearIssueTools(pi) {
 export default function piLinearServiceExtension(pi) {
   registerLinearIssueTools(pi);
   pi.registerCommand('linear-daemon-setup', {
-    description: 'Interactive setup for project daemon config (or pass flags directly)',
+    description: 'Interactive setup for project daemon config (use --project-id or --project-name, or run interactively)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
       await collectSetupArgsWithUI(ctx, args);
@@ -474,7 +579,7 @@ export default function piLinearServiceExtension(pi) {
   });
 
   pi.registerCommand('linear-daemon-reconfigure', {
-    description: 'Interactive reconfigure flow for existing project daemon config',
+    description: 'Interactive reconfigure flow for existing project daemon config (use --project-id or --project-name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
       const existing = await collectReconfigureArgsWithUI(ctx, args);
@@ -492,16 +597,13 @@ export default function piLinearServiceExtension(pi) {
   });
 
   pi.registerCommand('linear-daemon-status', {
-    description: 'Show daemon config status for a project',
+    description: 'Show daemon config status for a project (use --project-id or --project-name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      if (!readFlag(args, '--project-id')) {
-        const projectId = await promptInput(ctx, 'Linear project ID');
-        if (projectId) upsertFlag(args, '--project-id', projectId);
-      }
+      const projectRef = await collectProjectRefWithUI(ctx, args);
 
-      if (!readFlag(args, '--project-id')) {
-        throw new Error('Missing required argument --project-id');
+      if (!projectRef) {
+        throw new Error('Missing required argument --project-id or --project-name');
       }
 
       return withCommandFeedback(ctx, 'Daemon status', async () => {
@@ -518,16 +620,13 @@ export default function piLinearServiceExtension(pi) {
   });
 
   pi.registerCommand('linear-daemon-disable', {
-    description: 'Disable daemon config for a project',
+    description: 'Disable daemon config for a project (use --project-id or --project-name)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      if (!readFlag(args, '--project-id')) {
-        const projectId = await promptInput(ctx, 'Linear project ID');
-        if (projectId) upsertFlag(args, '--project-id', projectId);
-      }
+      const projectRef = await collectProjectRefWithUI(ctx, args);
 
-      if (!readFlag(args, '--project-id')) {
-        throw new Error('Missing required argument --project-id');
+      if (!projectRef) {
+        throw new Error('Missing required argument --project-id or --project-name');
       }
 
       return withCommandFeedback(ctx, 'Daemon disable', async () => {
@@ -561,13 +660,15 @@ export default function piLinearServiceExtension(pi) {
     description: 'Show pi-linear-service daemon commands',
     handler: async (_args, ctx) => {
       const lines = [
-        '/linear-daemon-setup                (interactive setup flow)',
-        '/linear-daemon-reconfigure          (interactive reconfigure flow)',
-        '/linear-daemon-status --project-id <id>',
-        '/linear-daemon-disable --project-id <id>',
+        '/linear-daemon-setup [--project-id <id> | --project-name <name>]  (interactive if no args)',
+        '/linear-daemon-reconfigure [--project-id <id> | --project-name <name>]',
+        '/linear-daemon-status --project-id <id> | --project-name <name>',
+        '/linear-daemon-disable --project-id <id> | --project-name <name>',
         '/linear-daemon-start [--unit-name <name>] [--no-systemctl]',
         '/linear-daemon-stop [--unit-name <name>] [--no-systemctl]',
         '/linear-daemon-restart [--unit-name <name>] [--no-systemctl]',
+        '',
+        'Note: --project-name resolves via Linear API (requires LINEAR_API_KEY)',
       ];
 
       if (ctx.hasUI) {

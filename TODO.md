@@ -1,9 +1,11 @@
-# TODO - Linear API issue actions as extension tools
+# TODO: Project Name Resolution and Interactive Project Selection
 
-- [x] Implement `linear_issue_start` git branch flow parity (branchName/fromRef/onBranchExists)
-- [x] Extend `src/linear.js` start helpers to expose branch metadata + explicit state update step
-- [x] Update tool schema/docs for new start params (`branch`, `fromRef`, `onBranchExists`)
-- [x] Add/extend tests for start tool behavior and non-regression
-- [x] Run verification (`npm test` and `node index.js --help`)
-- [x] Fix GraphQL mutation variable type for issue update/start (`$id: String!`) and accept workflow `state` by type
-- [x] Fix GraphQL operationName mismatch (`IssueStartEquivalent` -> `IssueUpdate`) for issue update mutation
+- [x] Add `fetchProjects` function to `src/linear.js`
+- [x] Add `resolveProjectRef` function to `src/linear.js`
+- [x] Add `collectProjectRefWithUI` helper to extension
+- [x] Update `linear-daemon-setup` to use new resolution logic
+- [x] Update `linear-daemon-status` to use new resolution logic
+- [x] Update `linear-daemon-reconfigure` to use new resolution logic
+- [x] Update `linear-daemon-disable` to use new resolution logic
+- [x] Update `linear-daemon-help` documentation
+- [x] Verify implementation with manual testing
