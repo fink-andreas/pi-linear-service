@@ -164,13 +164,30 @@ export async function disableProjectDaemon(args = []) {
 
 export async function daemonStatus(args = []) {
   const projectId = parseFlagValue(args, ['--id']);
-  ensureProjectId(projectId);
-
   const settings = await loadSettings();
-  const cfg = settings.projects?.[projectId];
-
   const options = getControlOptions(args);
   const serviceActive = options.noSystemctl ? null : isServiceActive(['--unit-name', options.unitName]);
+
+  // If no project specified, show status for all configured projects
+  if (!projectId) {
+    const projects = settings.projects || {};
+    const projectList = Object.entries(projects).map(([id, cfg]) => ({
+      projectId: id,
+      configured: true,
+      enabled: cfg.enabled !== false,
+      projectName: cfg.projectName || null,
+      repo: cfg.repo || null,
+    }));
+
+    console.log(JSON.stringify({
+      serviceActive,
+      projectCount: projectList.length,
+      projects: projectList,
+    }, null, 2));
+    return;
+  }
+
+  const cfg = settings.projects?.[projectId];
 
   if (!cfg) {
     console.log(JSON.stringify({ projectId, configured: false, serviceActive }, null, 2));

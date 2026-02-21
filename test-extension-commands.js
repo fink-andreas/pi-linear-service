@@ -120,6 +120,35 @@ async function testSetupAndStatusCommandPaths() {
   });
 }
 
+async function testStatusShowsAllProjects() {
+  await withTempHome(async () => {
+    const repoA = await mkdtemp(join(tmpdir(), 'pi-linear-ext-status-a-'));
+    const repoB = await mkdtemp(join(tmpdir(), 'pi-linear-ext-status-b-'));
+
+    const pi = createMockPi();
+    extension(pi);
+
+    const setup = pi.commands.get('linear-daemon-setup').handler;
+    const status = pi.commands.get('linear-daemon-status').handler;
+
+    const ctx = { hasUI: false };
+
+    // Setup two projects
+    await setup(`--id proj-a --repo-path ${repoA} --open-states "Todo,In Progress" --no-systemctl`, ctx);
+    await setup(`--id proj-b --repo-path ${repoB} --open-states "Todo,In Progress" --no-systemctl`, ctx);
+
+    // Status without project should show all
+    pi.sentMessages.length = 0;  // Clear array instead of replacing
+    await status('--no-systemctl', ctx);
+
+    assert.ok(pi.sentMessages.length > 0, 'status should send output');
+    const content = pi.sentMessages[0].content;
+    assert.match(content, /"projectCount": 2/);
+    assert.match(content, /"projectId": "proj-a"/);
+    assert.match(content, /"projectId": "proj-b"/);
+  });
+}
+
 async function testInteractiveSetupFlow() {
   await withTempHome(async () => {
     const repoPath = await mkdtemp(join(tmpdir(), 'pi-linear-ext-interactive-repo-'));
@@ -224,11 +253,11 @@ async function testFailurePathActionableMessage() {
   const pi = createMockPi();
   extension(pi);
 
-  const status = pi.commands.get('linear-daemon-status').handler;
+  const disable = pi.commands.get('linear-daemon-disable').handler;
 
   await assert.rejects(
-    () => status('', { hasUI: false }),
-    /Missing required argument --id/
+    () => disable('', { hasUI: false }),
+    /Missing required argument --id or --name/
   );
 }
 
@@ -428,6 +457,7 @@ async function testLinearIssueStartToolGitFlow() {
 async function main() {
   await testCommandRegistration();
   await testSetupAndStatusCommandPaths();
+  await testStatusShowsAllProjects();
   await testInteractiveSetupFlow();
   await testInteractiveReconfigureLoadsDefaultsAndUpdates();
   await testValidationFailureForMissingRepoPath();

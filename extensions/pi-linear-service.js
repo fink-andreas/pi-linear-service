@@ -591,13 +591,15 @@ export default function piLinearServiceExtension(pi) {
   });
 
   pi.registerCommand('linear-daemon-status', {
-    description: 'Show daemon config status for a project (use --id or --name)',
+    description: 'Show daemon config status (optional: --id or --name for specific project)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
-      const projectRef = await collectProjectRefWithUI(pi, ctx, args);
 
-      if (!projectRef) {
-        throw new Error('Missing required argument --id or --name');
+      // Try to get project reference, but don't require it for status
+      try {
+        await collectProjectRefWithUI(pi, ctx, args);
+      } catch {
+        // If user cancels, just show all projects
       }
 
       return withCommandFeedback(ctx, 'Daemon status', async () => {
@@ -656,7 +658,7 @@ export default function piLinearServiceExtension(pi) {
       const lines = [
         '/linear-daemon-setup [--id <id> | --name <name>]  (interactive if no args)',
         '/linear-daemon-reconfigure [--id <id> | --name <name>]',
-        '/linear-daemon-status --id <id> | --name <name>',
+        '/linear-daemon-status [--id <id> | --name <name>]  (shows all if no project)',
         '/linear-daemon-disable --id <id> | --name <name>',
         '/linear-daemon-start [--unit-name <name>] [--no-systemctl]',
         '/linear-daemon-stop [--unit-name <name>] [--no-systemctl]',
