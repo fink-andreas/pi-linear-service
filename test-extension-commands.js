@@ -115,8 +115,8 @@ async function testSetupAndStatusCommandPaths() {
     assert.ok(pi.sentMessages.length > 0, 'status command should send status output message');
     assert.match(pi.sentMessages[0].content, /"configured": true/);
 
-    assert.ok(notifications.some((n) => n.message.includes('Daemon setup succeeded')));
-    assert.ok(notifications.some((n) => n.message.includes('Daemon status succeeded')));
+    assert.ok(notifications.some((n) => n.message.includes('Setup complete')));
+    assert.ok(notifications.some((n) => n.message.includes('Status retrieved')));
   });
 }
 

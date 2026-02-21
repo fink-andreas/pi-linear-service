@@ -220,7 +220,7 @@ async function withCommandFeedback(ctx, actionLabel, run) {
   try {
     const result = await run();
     if (ctx?.hasUI) {
-      ctx.ui.notify(`${actionLabel} succeeded`, 'info');
+      ctx.ui.notify(actionLabel, 'info');
     }
     return result;
   } catch (err) {
@@ -612,7 +612,7 @@ export default function piLinearServiceExtension(pi) {
       effective.openStates = effective.openStates.length > 0 ? effective.openStates : ['Todo', 'In Progress'];
       validateProjectConfigInput(effective);
 
-      return withCommandFeedback(ctx, 'Daemon setup', async () => {
+      return withCommandFeedback(ctx, 'Setup complete', async () => {
         await setupProjectDaemon(args);
       });
     },
@@ -630,7 +630,7 @@ export default function piLinearServiceExtension(pi) {
       }
       validateProjectConfigInput(effective);
 
-      return withCommandFeedback(ctx, 'Daemon reconfigure', async () => {
+      return withCommandFeedback(ctx, 'Reconfigured', async () => {
         await reconfigureProjectDaemon(args);
       });
     },
@@ -648,7 +648,7 @@ export default function piLinearServiceExtension(pi) {
         // If user cancels, just show all projects
       }
 
-      return withCommandFeedback(ctx, 'Daemon status', async () => {
+      return withCommandFeedback(ctx, 'Status retrieved', async () => {
         const output = await runStatusWithCapture(args);
         if (output) {
           pi.sendMessage({
@@ -671,7 +671,7 @@ export default function piLinearServiceExtension(pi) {
         throw new Error('Missing required argument --id or --name');
       }
 
-      return withCommandFeedback(ctx, 'Daemon disable', async () => {
+      return withCommandFeedback(ctx, 'Disabled', async () => {
         await disableProjectDaemon(args);
       });
     },
@@ -679,21 +679,21 @@ export default function piLinearServiceExtension(pi) {
 
   pi.registerCommand('linear-daemon-start', {
     description: 'Start systemd user service for pi-linear-service',
-    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Daemon start', async () => {
+    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Started', async () => {
       await daemonStart(parseArgs(argsText));
     }),
   });
 
   pi.registerCommand('linear-daemon-stop', {
     description: 'Stop systemd user service for pi-linear-service',
-    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Daemon stop', async () => {
+    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Stopped', async () => {
       await daemonStop(parseArgs(argsText));
     }),
   });
 
   pi.registerCommand('linear-daemon-restart', {
     description: 'Restart systemd user service for pi-linear-service',
-    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Daemon restart', async () => {
+    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Restarted', async () => {
       await daemonRestart(parseArgs(argsText));
     }),
   });
