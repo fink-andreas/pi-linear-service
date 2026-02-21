@@ -130,7 +130,7 @@ async function testInteractiveSetupFlow() {
     const setup = pi.commands.get('linear-daemon-setup').handler;
 
     const prompts = [];
-    const promptValues = ['proj-interactive', 'Interactive Project', repoPath, 'Todo,In Progress'];
+    const promptValues = ['proj-interactive', repoPath, 'Todo,In Progress'];
     const ctx = {
       hasUI: true,
       ui: {
@@ -177,7 +177,7 @@ async function testInteractiveReconfigureLoadsDefaultsAndUpdates() {
       ui: {
         async input(label, placeholder) {
           placeholders.push({ label, placeholder });
-          if (label.includes('project ID')) return 'proj-r';
+          if (label.includes('project name') || label.includes('project ID')) return 'proj-r';
           if (label.includes('Project name')) return 'Project R';
           if (label.includes('Repository')) return repoB;
           if (label.includes('Open states')) return 'Backlog,In Progress';

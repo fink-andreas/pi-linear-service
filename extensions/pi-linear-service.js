@@ -286,85 +286,60 @@ async function collectProjectRefWithUI(pi, ctx, args) {
 
   // Try to fetch projects for interactive selection
   let projects = null;
+  let apiKey = null;
   try {
-    const apiKey = getLinearApiKey();
+    apiKey = getLinearApiKey();
     projects = await fetchProjects(apiKey);
   } catch (err) {
     // API key not available or API error - fall back to simple input
   }
 
-  // If we have projects, show selection list
-  if (projects && projects.length > 0) {
-    // Build selection list
+  // If we have projects and select UI, show selection list
+  if (projects && projects.length > 0 && ctx.ui.select) {
     const options = projects.map((p) => ({
       label: p.name,
       value: p.id,
     }));
 
-    // Use ui.select for project selection
-    if (ctx.ui.select) {
-      const selectedId = await ctx.ui.select('Select a Linear project', options);
-      if (selectedId) {
-        const selected = projects.find((p) => p.id === selectedId);
-        projectId = selectedId;
-        upsertFlag(args, '--id', projectId);
-        if (selected) {
-          upsertFlag(args, '--name', selected.name);
-        }
-        return { projectId, projectName: selected?.name || null };
-      }
-    } else {
-      // Fallback: show list and ask for input
-      const lines = ['Available Linear projects:'];
-      projects.forEach((p, i) => {
-        lines.push(`  ${i + 1}. ${p.name}`);
-      });
-      lines.push('');
-      lines.push('Enter project name or number:');
-
-      pi.sendMessage({
-        customType: 'pi-linear-service',
-        content: lines.join('\n'),
-        display: true,
-      });
-
-      const input = await promptInput(ctx, 'Project name or number');
-      if (!input) return null;
-
-      // Try to match by number
-      const num = Number.parseInt(input, 10);
-      if (!Number.isNaN(num) && num >= 1 && num <= projects.length) {
-        const selected = projects[num - 1];
-        projectId = selected.id;
-        upsertFlag(args, '--id', projectId);
+    const selectedId = await ctx.ui.select('Select a Linear project', options);
+    if (selectedId) {
+      const selected = projects.find((p) => p.id === selectedId);
+      projectId = selectedId;
+      upsertFlag(args, '--id', projectId);
+      if (selected) {
         upsertFlag(args, '--name', selected.name);
-        return { projectId, projectName: selected.name };
       }
+      return { projectId, projectName: selected?.name || null };
+    }
+    return null; // User canceled selection
+  }
 
-      // Try to resolve by name
-      try {
-        const apiKey = getLinearApiKey();
-        const resolved = await resolveProjectRef(apiKey, input);
-        projectId = resolved.id;
-        upsertFlag(args, '--id', projectId);
-        upsertFlag(args, '--name', resolved.name);
-        return { projectId, projectName: resolved.name };
-      } catch (resolveErr) {
-        // Fall through to error
-      }
+  // Fallback: simple input - accept project name or ID
+  const input = await promptInput(ctx, 'Linear project name or ID');
+  if (!input) return null;
+
+  // If it looks like a UUID or test ID (alphanumeric with hyphens, or short ID), use it directly
+  if (/^[a-zA-Z0-9-]+$/.test(input) && !apiKey) {
+    // No API key available - use input as project ID directly
+    upsertFlag(args, '--id', input);
+    return { projectId: input, projectName: null };
+  }
+
+  // Try to resolve as project name if we have API key
+  if (apiKey) {
+    try {
+      const resolved = await resolveProjectRef(apiKey, input);
+      upsertFlag(args, '--id', resolved.id);
+      upsertFlag(args, '--name', resolved.name);
+      return { projectId: resolved.id, projectName: resolved.name };
+    } catch (resolveErr) {
+      throw new Error(`Project not found: ${input}`);
     }
   }
 
-  // Fallback: simple input for project ID
-  projectId = await promptInput(ctx, 'Linear project ID');
-  if (projectId) {
-    upsertFlag(args, '--id', projectId);
-    const name = await promptInput(ctx, 'Project name (optional)');
-    if (name) upsertFlag(args, '--name', name);
-    return { projectId, projectName: name || null };
-  }
-
-  return null;
+  // No API key - use input as project ID
+  upsertFlag(args, '--id', input);
+  return { projectId: input, projectName: null };
 }
 
 function toTextResult(text, details = {}) {
