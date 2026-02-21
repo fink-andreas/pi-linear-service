@@ -397,7 +397,7 @@ function resolveStateIdFromInput(states, stateInput) {
   throw new Error(`State not found in team workflow: ${target}`);
 }
 
-async function issueUpdateMutation(apiKey, issueId, input, operationName = 'IssueUpdate') {
+async function issueUpdateMutation(apiKey, issueId, input, _operationName = 'IssueUpdate') {
   const mutation = `mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
     issueUpdate(id: $id, input: $input) {
       success
@@ -415,7 +415,7 @@ async function issueUpdateMutation(apiKey, issueId, input, operationName = 'Issu
     }
   }`;
 
-  const data = await executeQuery(apiKey, mutation, { id: issueId, input }, { operationName });
+  const data = await executeQuery(apiKey, mutation, { id: issueId, input }, { operationName: 'IssueUpdate' });
   const result = data?.issueUpdate;
   if (!result?.success) {
     throw new Error('Linear issueUpdate returned success=false');

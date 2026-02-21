@@ -6,3 +6,4 @@
 - [x] Add/extend tests for start tool behavior and non-regression
 - [x] Run verification (`npm test` and `node index.js --help`)
 - [x] Fix GraphQL mutation variable type for issue update/start (`$id: String!`) and accept workflow `state` by type
+- [x] Fix GraphQL operationName mismatch (`IssueStartEquivalent` -> `IssueUpdate`) for issue update mutation
