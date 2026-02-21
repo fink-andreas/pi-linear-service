@@ -187,11 +187,20 @@ export class RpcSessionManager {
       return { created: false, existed: false, sessionName, error: err, skipped: true, reason: err?.message || String(err) };
     }
 
-    info('Creating RPC session', { sessionName, piCommand: this.piCommand, piArgs: this.piArgs, cwd });
+    // Build piArgs with per-project runtime overrides
+    const piArgs = [...this.piArgs];
+    if (context.provider) {
+      piArgs.push('--provider', context.provider);
+    }
+    if (context.model) {
+      piArgs.push('--model', context.model);
+    }
+
+    info('Creating RPC session', { sessionName, piCommand: this.piCommand, piArgs, cwd, provider: context.provider, model: context.model });
 
     const client = new PiRpcClient(sessionName, {
       piCommand: this.piCommand,
-      piArgs: this.piArgs,
+      piArgs,
       timeoutMs: this.timeoutMs,
       cwd,
     });

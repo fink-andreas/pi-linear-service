@@ -285,6 +285,8 @@ async function createSessionsForProjects(byProject, config, sessionManager) {
         projectId,
         repoPath: projectCfg?.repo?.path,
         strictRepoMapping: Object.keys(config.projects || {}).length > 0,
+        provider: projectCfg?.runtime?.provider,
+        model: projectCfg?.runtime?.model,
       });
       if (ensure.error) {
         warn('RPC session ensure failed', { sessionName, projectId, error: ensure.error?.message || String(ensure.error) });
