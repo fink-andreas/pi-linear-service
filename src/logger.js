@@ -4,11 +4,20 @@
 
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
 let currentLevel = process.env.LOG_LEVEL || 'info';
+let quietMode = false;
+
+/**
+ * Enable quiet mode (suppress info/debug/warn, keep only errors)
+ */
+export function setQuietMode(quiet) {
+  quietMode = quiet;
+}
 
 /**
  * Check if a log level should be displayed
  */
 function shouldLog(level) {
+  if (quietMode && level !== 'error') return false;
   const currentIndex = LOG_LEVELS.indexOf(currentLevel);
   const levelIndex = LOG_LEVELS.indexOf(level);
   return levelIndex >= currentIndex;

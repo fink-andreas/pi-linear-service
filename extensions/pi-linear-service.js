@@ -10,6 +10,7 @@ import {
   daemonRestart,
 } from '../src/daemon-control.js';
 import { loadSettings, saveSettings } from '../src/settings.js';
+import { setQuietMode } from '../src/logger.js';
 import {
   prepareIssueStart,
   setIssueState,
@@ -214,6 +215,8 @@ async function collectReconfigureArgsWithUI(pi, ctx, args) {
 }
 
 async function withCommandFeedback(ctx, actionLabel, run) {
+  // Suppress JSON logging during daemon control operations
+  setQuietMode(true);
   try {
     const result = await run();
     if (ctx?.hasUI) {
@@ -226,6 +229,8 @@ async function withCommandFeedback(ctx, actionLabel, run) {
       ctx.ui.notify(`${actionLabel} failed: ${message}`, 'error');
     }
     throw err;
+  } finally {
+    setQuietMode(false);
   }
 }
 
