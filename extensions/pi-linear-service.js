@@ -426,12 +426,27 @@ function registerLinearIssueTools(pi) {
         state: params.state,
       });
 
+      const friendlyChanges = result.changed.map((field) => (field === 'stateId' ? 'state' : field));
+      const changeSummaryParts = [];
+
+      if (friendlyChanges.includes('state') && result.issue?.state?.name) {
+        changeSummaryParts.push(`state: ${result.issue.state.name}`);
+      }
+
+      for (const field of friendlyChanges) {
+        if (field !== 'state') changeSummaryParts.push(field);
+      }
+
+      const suffix = changeSummaryParts.length > 0
+        ? ` (${changeSummaryParts.join(', ')})`
+        : '';
+
       return toTextResult(
-        `Updated issue ${result.issue.identifier}: ${result.changed.join(', ')}`,
+        `Updated issue ${result.issue.identifier}${suffix}`,
         {
           issueId: result.issue.id,
           identifier: result.issue.identifier,
-          changed: result.changed,
+          changed: friendlyChanges,
           state: result.issue.state,
           priority: result.issue.priority,
         }
