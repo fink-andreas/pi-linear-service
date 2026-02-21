@@ -4,13 +4,22 @@
 
 import dotenv from 'dotenv';
 import { resolve } from 'path';
+import { homedir } from 'os';
+import { existsSync } from 'fs';
 import { loadSettings, mergeSettingsWithEnv, getDefaultSettings } from './settings.js';
 
-// Determine .env file path (dotenv uses process.cwd() by default)
-const envPath = resolve(process.cwd(), '.env');
+// Determine .env file path
+// Priority: 1) Permanent location (survives reinstalls), 2) Current working directory
+const permanentEnvPath = resolve(homedir(), '.pi', 'agent', 'extensions', 'pi-linear-service', '.env');
+const cwdEnvPath = resolve(process.cwd(), '.env');
+
+let envPath = cwdEnvPath;
+if (existsSync(permanentEnvPath)) {
+  envPath = permanentEnvPath;
+}
 
 // Load .env file if it exists
-dotenv.config();
+dotenv.config({ path: envPath });
 
 /**
  * Parse integer from environment variable with default
@@ -136,8 +145,8 @@ function parseEnvConfig() {
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}. ` +
-      `Expected .env file location: ${envPath}. ` +
-      'Create this file or set the variables in your environment before starting the service.'
+      `Create .env file at: ${permanentEnvPath} ` +
+      '(or set variables in environment).'
     );
   }
 

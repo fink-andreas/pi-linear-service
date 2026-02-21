@@ -32,8 +32,10 @@ function resolveCliPath() {
 }
 
 function resolveOptions(args = []) {
+  // Permanent .env location that survives extension reinstalls
+  const permanentEnvPath = join(homedir(), '.pi', 'agent', 'extensions', 'pi-linear-service', '.env');
   const workingDir = resolve(parseFlagValue(args, ['--working-dir', '-w'], process.cwd()));
-  const envFile = resolve(parseFlagValue(args, ['--env-file', '-e'], join(workingDir, '.env')));
+  const envFile = parseFlagValue(args, ['--env-file', '-e'], permanentEnvPath);
   const unitName = parseFlagValue(args, ['--unit-name'], UNIT_NAME);
   const nodePath = parseFlagValue(args, ['--node-path'], process.execPath);
   const noSystemctl = hasFlag(args, '--no-systemctl');

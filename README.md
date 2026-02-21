@@ -30,18 +30,27 @@ export LINEAR_API_KEY="lin_xxx"
 export ASSIGNEE_ID="<your-linear-user-id-or-slug>"
 ```
 
-### 4) Open pi and run guided setup
+### 4) Create daemon .env file (for background service)
+```bash
+mkdir -p ~/.pi/agent/extensions/pi-linear-service
+cat > ~/.pi/agent/extensions/pi-linear-service/.env << 'EOF'
+LINEAR_API_KEY=lin_xxx
+ASSIGNEE_ID=<your-linear-user-id-or-slug>
+EOF
+```
+
+### 5) Open pi and run guided setup
 ```text
 /linear-daemon-setup
 ```
 Provide project id + repo path (absolute path required), then confirm success.
 
-### 5) Start daemon service
+### 6) Start daemon service
 ```text
 /linear-daemon-start
 ```
 
-### 6) Confirm status
+### 7) Confirm status
 ```text
 /linear-daemon-status              # show all projects
 /linear-daemon-status --name "My Project"  # show specific project
