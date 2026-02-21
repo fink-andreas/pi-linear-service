@@ -17,7 +17,14 @@ pi config
 ```
 Enable the `pi-linear-service` extension.
 
-### 3) Configure required env for the daemon
+### 3) Configure LINEAR_API_KEY (choose one)
+
+Option A - Store in settings (recommended):
+```text
+/linear-daemon-config --api-key lin_xxx
+```
+
+Option B - Environment variable:
 ```bash
 export LINEAR_API_KEY="lin_xxx"
 export ASSIGNEE_ID="<your-linear-user-id-or-slug>"
@@ -118,6 +125,7 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
 
 ## In-pi extension commands
 
+- `/linear-daemon-config --api-key <key>` - store LINEAR_API_KEY in settings
 - `/linear-daemon-setup`
 - `/linear-daemon-reconfigure`
 - `/linear-daemon-status [--id <id> | --name <name>]`
