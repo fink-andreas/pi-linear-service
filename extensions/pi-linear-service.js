@@ -8,6 +8,7 @@ import {
   daemonStart,
   daemonStop,
   daemonRestart,
+  daemonInstall,
 } from '../src/daemon-control.js';
 import { loadSettings, saveSettings } from '../src/settings.js';
 import { setQuietMode } from '../src/logger.js';
@@ -698,6 +699,13 @@ export default function piLinearServiceExtension(pi) {
     }),
   });
 
+  pi.registerCommand('linear-daemon-install', {
+    description: 'Install systemd user service for pi-linear-service',
+    handler: async (argsText, ctx) => withCommandFeedback(ctx, 'Service installed', async () => {
+      await daemonInstall(parseArgs(argsText));
+    }),
+  });
+
   pi.registerCommand('linear-daemon-config', {
     description: 'Configure extension settings (e.g., LINEAR_API_KEY)',
     handler: async (argsText, ctx) => {
@@ -739,14 +747,15 @@ Note: Environment variable takes precedence over settings file.`,
     description: 'Show pi-linear-service daemon commands',
     handler: async (_args, ctx) => {
       const lines = [
-        '/linear-daemon-config --api-key <key>  (store LINEAR_API_KEY in settings)',
-        '/linear-daemon-setup [--id <id> | --name <name>]  (interactive if no args)',
+        '/linear-daemon-config --api-key <key>  (store LINEAR_API_KEY)',
+        '/linear-daemon-install  (install systemd service)',
+        '/linear-daemon-setup [--id <id> | --name <name>]',
         '/linear-daemon-reconfigure [--id <id> | --name <name>]',
         '/linear-daemon-status [--id <id> | --name <name>]  (shows all if no project)',
         '/linear-daemon-disable --id <id> | --name <name>',
-        '/linear-daemon-start [--unit-name <name>] [--no-systemctl]',
-        '/linear-daemon-stop [--unit-name <name>] [--no-systemctl]',
-        '/linear-daemon-restart [--unit-name <name>] [--no-systemctl]',
+        '/linear-daemon-start',
+        '/linear-daemon-stop',
+        '/linear-daemon-restart',
         '',
         'Note: --name requires LINEAR_API_KEY (set via /linear-daemon-config or env)',
       ];

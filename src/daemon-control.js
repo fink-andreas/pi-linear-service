@@ -6,6 +6,7 @@ import {
   restartService,
   startService,
   stopService,
+  installService,
 } from './service-cli.js';
 
 function parseFlagValue(args, names, fallback = undefined) {
@@ -231,4 +232,14 @@ export async function daemonRestart(args = []) {
     return;
   }
   await restartService(['--unit-name', options.unitName]);
+}
+
+export async function daemonInstall(args = []) {
+  const options = getControlOptions(args);
+  if (options.noSystemctl) {
+    info('Skipped daemon install (--no-systemctl)', { unitName: options.unitName });
+    return;
+  }
+  await installService(args);
+  info('Daemon service installed', { unitName: options.unitName });
 }
