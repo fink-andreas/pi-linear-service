@@ -15,6 +15,14 @@ function truncate(str, maxLen = 800) {
   return str.slice(0, maxLen) + '…(truncated)';
 }
 
+function truncateJson(value, maxLen = 800) {
+  try {
+    return truncate(JSON.stringify(value), maxLen);
+  } catch {
+    return '<unserializable-json>';
+  }
+}
+
 /**
  * Execute a GraphQL query against Linear API
  *
@@ -32,6 +40,12 @@ function truncate(str, maxLen = 800) {
  */
 export async function executeQuery(apiKey, query, variables = {}, options = {}) {
   const { operationName, timeoutMs = 15000 } = options;
+  const queryFirstLine = query?.split('\n')?.[0] || '<unknown-query>';
+  const requestContext = {
+    operationName: operationName || null,
+    queryFirstLine,
+    variables,
+  };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -41,7 +55,8 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
   try {
     debug('Executing Linear GraphQL query', {
       operationName,
-      queryFirstLine: query?.split('\n')?.[0],
+      queryFirstLine,
+      variables,
     });
 
     // Measure API latency and keep explicit failure details.
@@ -72,30 +87,40 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
           operationName,
           timeoutMs,
           durationMs: fetchDuration,
+          request: requestContext,
         });
-        throw new Error(`Linear API request timed out after ${timeoutMs}ms`);
+        throw new Error(
+          `Linear API request timed out after ${timeoutMs}ms; request=${truncateJson(requestContext, 1500)}`
+        );
       }
 
       logError('Linear API request failed before receiving response', {
         operationName,
         durationMs: fetchDuration,
         error: fetchError?.message || String(fetchError),
+        request: requestContext,
       });
-      throw new Error(`Linear API request failed: ${fetchError?.message || String(fetchError)}`);
+      throw new Error(
+        `Linear API request failed: ${fetchError?.message || String(fetchError)}; request=${truncateJson(requestContext, 1500)}`
+      );
     }
 
     const response = fetchResult.result;
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '<failed to read response body>');
+      const responseSnippet = truncate(errorText, 1500);
       logError('Linear API request failed', {
         operationName,
         status: response.status,
         statusText: response.statusText,
-        responseBodySnippet: truncate(errorText),
+        responseBodySnippet: responseSnippet,
         durationMs: fetchDuration,
+        request: requestContext,
       });
-      throw new Error(`Linear API HTTP error: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Linear API HTTP error: ${response.status} ${response.statusText}; request=${truncateJson(requestContext, 1500)}; response=${responseSnippet}`
+      );
     }
 
     let result;
@@ -103,27 +128,36 @@ export async function executeQuery(apiKey, query, variables = {}, options = {}) 
       result = await response.json();
     } catch (e) {
       const raw = await response.text().catch(() => '<failed to read response body>');
+      const responseSnippet = truncate(raw, 1500);
       logError('Linear API returned non-JSON response', {
         operationName,
-        responseBodySnippet: truncate(raw),
+        responseBodySnippet: responseSnippet,
+        request: requestContext,
       });
-      throw new Error('Linear API returned invalid JSON');
+      throw new Error(
+        `Linear API returned invalid JSON; request=${truncateJson(requestContext, 1500)}; response=${responseSnippet}`
+      );
     }
 
     if (result?.errors?.length) {
+      const normalizedErrors = result.errors.map((e) => ({
+        message: e.message,
+        path: e.path,
+        code: e.extensions?.code,
+        type: e.extensions?.type,
+      }));
+
       logError('GraphQL query returned errors', {
         operationName,
         durationMs: fetchDuration,
-        errors: result.errors.map((e) => ({
-          message: e.message,
-          path: e.path,
-          code: e.extensions?.code,
-          type: e.extensions?.type,
-        })),
+        errors: normalizedErrors,
+        request: requestContext,
       });
 
       const messages = result.errors.map((e) => e.message).join(', ');
-      throw new Error(`Linear GraphQL error(s): ${messages}`);
+      throw new Error(
+        `Linear GraphQL error(s): ${messages}; request=${truncateJson(requestContext, 1500)}; errors=${truncateJson(normalizedErrors, 1500)}`
+      );
     }
 
     debug('Linear GraphQL query successful', {
