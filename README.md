@@ -36,7 +36,8 @@ Provide project id + repo path (absolute path required), then confirm success.
 
 ### 6) Confirm status
 ```text
-/linear-daemon-status --id <project-id>
+/linear-daemon-status              # show all projects
+/linear-daemon-status --name "My Project"  # show specific project
 ```
 
 ---
@@ -103,7 +104,7 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
    ```
 7. Check status:
    ```text
-   /linear-daemon-status --id <project-id>
+   /linear-daemon-status
    ```
 8. Reconfigure later if needed:
    ```text
@@ -119,8 +120,8 @@ After install, run `pi config` in the same scope (global or local) to enable/dis
 
 - `/linear-daemon-setup`
 - `/linear-daemon-reconfigure`
-- `/linear-daemon-status --id <id>`
-- `/linear-daemon-disable --id <id>`
+- `/linear-daemon-status [--id <id> | --name <name>]`
+- `/linear-daemon-disable --id <id> | --name <name>`
 - `/linear-daemon-start [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-stop [--unit-name <name>] [--no-systemctl]`
 - `/linear-daemon-restart [--unit-name <name>] [--no-systemctl]`
