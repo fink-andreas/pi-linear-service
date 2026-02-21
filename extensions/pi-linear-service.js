@@ -163,11 +163,18 @@ async function collectSetupArgsWithUI(pi, ctx, args) {
   if (!readFlag(args, '--id')) return;
 
   const projectName = readFlag(args, '--name');
-  const repoPath = await promptInput(ctx, 'Repository absolute path');
+
+  // Only prompt for repo path if not already provided
+  if (!readFlag(args, '--repo-path')) {
+    const cwd = process.cwd();
+    const repoPath = await promptInput(ctx, 'Repository absolute path', cwd);
+    // Use CWD as default if user didn't enter anything
+    upsertFlag(args, '--repo-path', repoPath || cwd);
+  }
+
   const assignee = await promptSelectAssignee(ctx, 'me');
   const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
 
-  if (repoPath) upsertFlag(args, '--repo-path', repoPath);
   if (assignee) upsertFlag(args, '--assignee', assignee);
   if (openStates) upsertFlag(args, '--open-states', openStates);
 
