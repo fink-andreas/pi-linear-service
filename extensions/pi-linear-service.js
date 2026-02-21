@@ -389,7 +389,7 @@ function registerLinearIssueTools(pi) {
       const result = await addIssueComment(apiKey, issue, body, params.parentCommentId);
 
       return toTextResult(
-        `Added comment to issue ${result.issue.identifier}: commentId=${result.comment.id}`,
+        `Added comment to issue ${result.issue.identifier}`,
         {
           issueId: result.issue.id,
           identifier: result.issue.identifier,
