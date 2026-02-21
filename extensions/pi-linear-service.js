@@ -296,20 +296,18 @@ async function collectProjectRefWithUI(pi, ctx, args) {
 
   // If we have projects and select UI, show selection list
   if (projects && projects.length > 0 && ctx.ui.select) {
-    const options = projects.map((p) => ({
-      label: p.name,
-      value: p.id,
-    }));
+    // pi's ui.select expects an array of strings (labels)
+    const projectNames = projects.map((p) => p.name);
 
-    const selectedId = await ctx.ui.select('Select a Linear project', options);
-    if (selectedId) {
-      const selected = projects.find((p) => p.id === selectedId);
-      projectId = selectedId;
-      upsertFlag(args, '--id', projectId);
+    const selectedName = await ctx.ui.select('Select a Linear project', projectNames);
+    if (selectedName) {
+      const selected = projects.find((p) => p.name === selectedName);
       if (selected) {
+        projectId = selected.id;
+        upsertFlag(args, '--id', projectId);
         upsertFlag(args, '--name', selected.name);
+        return { projectId, projectName: selected.name };
       }
-      return { projectId, projectName: selected?.name || null };
     }
     return null; // User canceled selection
   }
