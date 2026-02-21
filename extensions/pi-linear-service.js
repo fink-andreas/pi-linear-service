@@ -320,8 +320,18 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   }
 
   // Fallback: simple input - accept project name or ID
+  // This path is reached when LINEAR_API_KEY is not available or select UI isn't supported
   const input = await promptInput(ctx, 'Linear project name or ID');
-  if (!input) return null;
+  if (!input) {
+    if (ctx?.hasUI) {
+      if (!apiKey) {
+        ctx.ui.notify('LINEAR_API_KEY not set. Set it in your environment to enable project list selection, or provide a project ID directly.', 'error');
+      } else {
+        ctx.ui.notify('Please enter a project name or ID', 'error');
+      }
+    }
+    return null;
+  }
 
   // If it looks like a UUID or test ID (alphanumeric with hyphens, or short ID), use it directly
   if (/^[a-zA-Z0-9-]+$/.test(input) && !apiKey) {
@@ -564,11 +574,8 @@ export default function piLinearServiceExtension(pi) {
 
       // Check if user canceled or no project was provided
       if (!readFlag(args, '--id')) {
-        if (ctx?.hasUI) {
-          ctx.ui.notify('Setup canceled', 'info');
-          return;
-        }
-        throw new Error('Missing required argument --id or --name');
+        // collectProjectRefWithUI already showed a notification explaining why
+        return;
       }
 
       const effective = effectiveConfigFromArgs(args);
