@@ -596,3 +596,381 @@ export async function updateIssue(apiKey, issue, patch = {}) {
     changed: Object.keys(nextPatch),
   };
 }
+
+/**
+ * Fetch detailed issue information including comments, parent, children, and attachments
+ * @param {string} apiKey - Linear API key
+ * @param {string} issue - Issue identifier (ABC-123) or Linear issue ID
+ * @param {Object} options
+ * @param {boolean} [options.includeComments=true] - Include comments in response
+ * @returns {Promise<Object>} Issue details
+ */
+export async function fetchIssueDetails(apiKey, issue, options = {}) {
+  const { includeComments = true } = options;
+  const targetIssue = await resolveIssue(apiKey, issue);
+  const issueId = targetIssue.id;
+
+  const queryWithComments = `query GetIssueDetailsWithComments($id: String!) {
+    issue(id: $id) {
+      identifier
+      title
+      description
+      url
+      branchName
+      priority
+      estimate
+      createdAt
+      updatedAt
+      state {
+        name
+        color
+        type
+      }
+      team {
+        id
+        key
+        name
+      }
+      project {
+        id
+        name
+      }
+      assignee {
+        id
+        name
+        displayName
+      }
+      creator {
+        id
+        name
+        displayName
+      }
+      labels {
+        nodes {
+          id
+          name
+          color
+        }
+      }
+      parent {
+        identifier
+        title
+        state {
+          name
+          color
+        }
+      }
+      children(first: 50) {
+        nodes {
+          identifier
+          title
+          state {
+            name
+            color
+          }
+        }
+      }
+      comments(first: 50, orderBy: createdAt) {
+        nodes {
+          id
+          body
+          createdAt
+          updatedAt
+          user {
+            name
+            displayName
+          }
+          externalUser {
+            name
+            displayName
+          }
+          parent {
+            id
+          }
+        }
+      }
+      attachments(first: 20) {
+        nodes {
+          id
+          title
+          url
+          subtitle
+          sourceType
+          createdAt
+        }
+      }
+    }
+  }`;
+
+  const queryWithoutComments = `query GetIssueDetails($id: String!) {
+    issue(id: $id) {
+      identifier
+      title
+      description
+      url
+      branchName
+      priority
+      estimate
+      createdAt
+      updatedAt
+      state {
+        name
+        color
+        type
+      }
+      team {
+        id
+        key
+        name
+      }
+      project {
+        id
+        name
+      }
+      assignee {
+        id
+        name
+        displayName
+      }
+      creator {
+        id
+        name
+        displayName
+      }
+      labels {
+        nodes {
+          id
+          name
+          color
+        }
+      }
+      parent {
+        identifier
+        title
+        state {
+          name
+          color
+        }
+      }
+      children(first: 50) {
+        nodes {
+          identifier
+          title
+          state {
+            name
+            color
+          }
+        }
+      }
+      attachments(first: 20) {
+        nodes {
+          id
+          title
+          url
+          subtitle
+          sourceType
+          createdAt
+        }
+      }
+    }
+  }`;
+
+  const query = includeComments ? queryWithComments : queryWithoutComments;
+  const data = await executeQuery(apiKey, query, { id: issueId }, {
+    operationName: includeComments ? 'GetIssueDetailsWithComments' : 'GetIssueDetails',
+  });
+
+  const issueData = data?.issue;
+  if (!issueData) {
+    throw new Error(`Issue not found: ${issueId}`);
+  }
+
+  return {
+    ...issueData,
+    children: issueData.children?.nodes || [],
+    comments: issueData.comments?.nodes || [],
+    attachments: issueData.attachments?.nodes || [],
+    labels: issueData.labels?.nodes || [],
+  };
+}
+
+/**
+ * Format relative time from ISO date string
+ * @param {string} isoDate - ISO date string
+ * @returns {string} Human-readable relative time
+ */
+function formatRelativeTime(isoDate) {
+  if (!isoDate) return 'unknown';
+
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffSeconds < 60) return 'just now';
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  if (diffWeeks < 4) return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''} ago`;
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+  return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
+}
+
+/**
+ * Format issue details as markdown
+ * @param {Object} issueData - Issue data from fetchIssueDetails
+ * @param {Object} options
+ * @param {boolean} [options.includeComments=true] - Include comments in markdown
+ * @returns {string} Markdown formatted issue
+ */
+export function formatIssueAsMarkdown(issueData, options = {}) {
+  const { includeComments = true } = options;
+  const lines = [];
+
+  // Title
+  lines.push(`# ${issueData.identifier}: ${issueData.title}`);
+
+  // Meta information
+  const metaParts = [];
+  if (issueData.state?.name) {
+    metaParts.push(`**State:** ${issueData.state.name}`);
+  }
+  if (issueData.team?.name) {
+    metaParts.push(`**Team:** ${issueData.team.name}`);
+  }
+  if (issueData.project?.name) {
+    metaParts.push(`**Project:** ${issueData.project.name}`);
+  }
+  if (issueData.assignee?.displayName) {
+    metaParts.push(`**Assignee:** ${issueData.assignee.displayName}`);
+  }
+  if (issueData.priority !== undefined && issueData.priority !== null) {
+    const priorityNames = ['No priority', 'Urgent', 'High', 'Medium', 'Low'];
+    metaParts.push(`**Priority:** ${priorityNames[issueData.priority] || issueData.priority}`);
+  }
+  if (issueData.estimate !== undefined && issueData.estimate !== null) {
+    metaParts.push(`**Estimate:** ${issueData.estimate}`);
+  }
+  if (issueData.labels?.length > 0) {
+    const labelNames = issueData.labels.map((l) => l.name).join(', ');
+    metaParts.push(`**Labels:** ${labelNames}`);
+  }
+
+  if (metaParts.length > 0) {
+    lines.push('');
+    lines.push(metaParts.join(' | '));
+  }
+
+  // URLs
+  if (issueData.url) {
+    lines.push('');
+    lines.push(`**URL:** ${issueData.url}`);
+  }
+  if (issueData.branchName) {
+    lines.push(`**Branch:** ${issueData.branchName}`);
+  }
+
+  // Description
+  if (issueData.description) {
+    lines.push('');
+    lines.push(issueData.description);
+  }
+
+  // Parent issue
+  if (issueData.parent) {
+    lines.push('');
+    lines.push('## Parent');
+    lines.push('');
+    lines.push(`- **${issueData.parent.identifier}**: ${issueData.parent.title} _[${issueData.parent.state?.name || 'unknown'}]_`);
+  }
+
+  // Sub-issues
+  if (issueData.children?.length > 0) {
+    lines.push('');
+    lines.push('## Sub-issues');
+    lines.push('');
+    for (const child of issueData.children) {
+      lines.push(`- **${child.identifier}**: ${child.title} _[${child.state?.name || 'unknown'}]_`);
+    }
+  }
+
+  // Attachments
+  if (issueData.attachments?.length > 0) {
+    lines.push('');
+    lines.push('## Attachments');
+    lines.push('');
+    for (const attachment of issueData.attachments) {
+      const sourceLabel = attachment.sourceType ? ` _[${attachment.sourceType}]_` : '';
+      lines.push(`- **${attachment.title}**: ${attachment.url}${sourceLabel}`);
+      if (attachment.subtitle) {
+        lines.push(`  _${attachment.subtitle}_`);
+      }
+    }
+  }
+
+  // Comments
+  if (includeComments && issueData.comments?.length > 0) {
+    lines.push('');
+    lines.push('## Comments');
+    lines.push('');
+
+    // Separate root comments from replies
+    const rootComments = issueData.comments.filter((c) => !c.parent);
+    const replies = issueData.comments.filter((c) => c.parent);
+
+    // Create a map of parent ID to replies
+    const repliesMap = new Map();
+    replies.forEach((reply) => {
+      const parentId = reply.parent.id;
+      if (!repliesMap.has(parentId)) {
+        repliesMap.set(parentId, []);
+      }
+      repliesMap.get(parentId).push(reply);
+    });
+
+    // Sort root comments by creation date (newest first)
+    const sortedRootComments = rootComments.slice().reverse();
+
+    for (const rootComment of sortedRootComments) {
+      const threadReplies = repliesMap.get(rootComment.id) || [];
+
+      // Sort replies by creation date (oldest first within thread)
+      threadReplies.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+      const rootAuthor = rootComment.user?.displayName
+        || rootComment.user?.name
+        || rootComment.externalUser?.displayName
+        || rootComment.externalUser?.name
+        || 'Unknown';
+      const rootDate = formatRelativeTime(rootComment.createdAt);
+
+      lines.push(`- **@${rootAuthor}** - _${rootDate}_`);
+      lines.push('');
+      lines.push(`  ${rootComment.body.split('\n').join('\n  ')}`);
+      lines.push('');
+
+      // Format replies
+      for (const reply of threadReplies) {
+        const replyAuthor = reply.user?.displayName
+          || reply.user?.name
+          || reply.externalUser?.displayName
+          || reply.externalUser?.name
+          || 'Unknown';
+        const replyDate = formatRelativeTime(reply.createdAt);
+
+        lines.push(`  - **@${replyAuthor}** - _${replyDate}_`);
+        lines.push('');
+        lines.push(`    ${reply.body.split('\n').join('\n    ')}`);
+        lines.push('');
+      }
+    }
+  }
+
+  return lines.join('\n');
+}

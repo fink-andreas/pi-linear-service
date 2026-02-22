@@ -19,6 +19,8 @@ import {
   updateIssue,
   fetchProjects,
   resolveProjectRef,
+  fetchIssueDetails,
+  formatIssueAsMarkdown,
 } from '../src/linear.js';
 
 function parseArgs(argsString) {
@@ -573,6 +575,40 @@ function registerLinearIssueTools(pi) {
           priority: result.issue.priority,
         }
       );
+    },
+  });
+
+  pi.registerTool({
+    name: 'linear_issue_view',
+    label: 'Linear Issue View',
+    description: 'View detailed issue information including description, comments, parent, children, and attachments as markdown',
+    parameters: {
+      type: 'object',
+      properties: {
+        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
+        includeComments: { type: 'boolean', description: 'Include comments in output (default: true)' },
+      },
+      required: ['issue'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = await getLinearApiKey();
+      const issue = ensureNonEmpty(params.issue, 'issue');
+      const includeComments = params.includeComments !== false;
+
+      const issueData = await fetchIssueDetails(apiKey, issue, { includeComments });
+      const markdown = formatIssueAsMarkdown(issueData, { includeComments });
+
+      return {
+        content: [{ type: 'text', text: markdown }],
+        details: {
+          issueId: issueData.id,
+          identifier: issueData.identifier,
+          title: issueData.title,
+          state: issueData.state,
+          url: issueData.url,
+        },
+      };
     },
   });
 }
