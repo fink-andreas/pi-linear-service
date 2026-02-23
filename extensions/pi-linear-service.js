@@ -438,6 +438,39 @@ function registerLinearIssueTools(pi) {
   if (typeof pi.registerTool !== 'function') return;
 
   pi.registerTool({
+    name: 'linear_project_list',
+    label: 'Linear Project List',
+    description: 'List all accessible Linear projects',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, _params) {
+      const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
+
+      const projects = await fetchProjects(client);
+
+      if (projects.length === 0) {
+        return toTextResult('No projects found', { projectCount: 0 });
+      }
+
+      const lines = [`## Projects (${projects.length})\n`];
+
+      for (const project of projects) {
+        lines.push(`- **${project.name}** \`${project.id}\``);
+      }
+
+      return toTextResult(lines.join('\n'), {
+        projectCount: projects.length,
+        projects: projects.map(p => ({ id: p.id, name: p.name })),
+      });
+    },
+  });
+
+  pi.registerTool({
     name: 'linear_issue_start',
     label: 'Linear Issue Start',
     description: 'Start a Linear issue: create/switch git branch, then move issue to team started workflow state',
