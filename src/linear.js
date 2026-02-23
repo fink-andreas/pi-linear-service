@@ -568,73 +568,61 @@ export async function createIssue(client, input) {
   }
 
   // The create response includes the issue with basic fields
-  // Return what we have from the create response - it should include identifier
   const created = result.issue;
 
-  // Build a response object with available fields
+  // Try to fetch the full issue to get computed fields like identifier
+  // This may fail in some cases, so we have a fallback
+  try {
+    const fullIssue = await client.issue(created.id);
+    if (fullIssue) {
+      return transformIssue(fullIssue);
+    }
+  } catch (fetchErr) {
+    debug('Could not fetch full issue after creation', { error: fetchErr.message });
+  }
+
+  // Fallback: Build response from create result + input values
   const issueResponse = {
     id: created.id,
-    identifier: created.identifier,
+    identifier: created.identifier || null,
     title: created.title || title,
     description: created.description ?? input.description ?? null,
-    url: created.url,
+    url: created.url || null,
     priority: created.priority ?? input.priority ?? null,
+    state: null,
+    team: null,
+    project: null,
+    assignee: null,
   };
 
-  // Try to resolve team info
-  if (created.team) {
-    try {
+  // Try to resolve relations (they may be promises)
+  try {
+    if (created.team) {
       const teamData = await created.team;
-      issueResponse.team = teamData ? {
-        id: teamData.id,
-        key: teamData.key,
-        name: teamData.name,
-      } : null;
-    } catch {
-      issueResponse.team = null;
+      if (teamData) issueResponse.team = { id: teamData.id, key: teamData.key, name: teamData.name };
     }
-  }
+  } catch { /* ignore */ }
 
-  // Try to resolve project info
-  if (created.project) {
-    try {
+  try {
+    if (created.project) {
       const projectData = await created.project;
-      issueResponse.project = projectData ? {
-        id: projectData.id,
-        name: projectData.name,
-      } : null;
-    } catch {
-      issueResponse.project = null;
+      if (projectData) issueResponse.project = { id: projectData.id, name: projectData.name };
     }
-  }
+  } catch { /* ignore */ }
 
-  // Try to resolve state info
-  if (created.state) {
-    try {
+  try {
+    if (created.state) {
       const stateData = await created.state;
-      issueResponse.state = stateData ? {
-        id: stateData.id,
-        name: stateData.name,
-        type: stateData.type,
-      } : null;
-    } catch {
-      issueResponse.state = null;
+      if (stateData) issueResponse.state = { id: stateData.id, name: stateData.name, type: stateData.type };
     }
-  }
+  } catch { /* ignore */ }
 
-  // Try to resolve assignee info
-  if (created.assignee) {
-    try {
+  try {
+    if (created.assignee) {
       const assigneeData = await created.assignee;
-      issueResponse.assignee = assigneeData ? {
-        id: assigneeData.id,
-        name: assigneeData.name,
-        displayName: assigneeData.displayName,
-      } : null;
-    } catch {
-      issueResponse.assignee = null;
+      if (assigneeData) issueResponse.assignee = { id: assigneeData.id, name: assigneeData.name, displayName: assigneeData.displayName };
     }
-  }
+  } catch { /* ignore */ }
 
   return issueResponse;
 }

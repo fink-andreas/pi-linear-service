@@ -717,6 +717,7 @@ async function executeIssueCreate(client, params) {
 
   const issue = await createIssue(client, createInput);
 
+  const identifier = issue.identifier || issue.id;
   const projectLabel = issue.project?.name || 'No project';
   const priorityLabel = issue.priority !== undefined && issue.priority !== null
     ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
@@ -728,7 +729,7 @@ async function executeIssueCreate(client, params) {
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
   return toTextResult(
-    `Created issue **${issue.identifier}**: ${issue.title}\n\n_${metaParts.join(' | ')}_`,
+    `Created issue **${identifier}**: ${issue.title}\n\n_${metaParts.join(' | ')}_`,
     {
       issueId: issue.id,
       identifier: issue.identifier,
