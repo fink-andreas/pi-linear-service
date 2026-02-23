@@ -678,10 +678,17 @@ async function executeIssueCreate(client, params) {
     createInput.parentId = params.parentId;
   }
 
-  // Resolve project if specified
-  if (params.project) {
-    const project = await resolveProjectRef(client, params.project);
+  // Resolve project - default to current directory name if not specified
+  let projectRef = params.project;
+  if (!projectRef) {
+    projectRef = process.cwd().split('/').pop();
+  }
+
+  try {
+    const project = await resolveProjectRef(client, projectRef);
     createInput.projectId = project.id;
+  } catch (err) {
+    // Project not found - continue without project
   }
 
   const issue = await createIssue(client, createInput);

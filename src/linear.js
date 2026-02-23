@@ -563,7 +563,23 @@ export async function createIssue(client, input) {
     throw new Error('Failed to create issue');
   }
 
-  return transformIssue(result.issue);
+  // The create response includes the issue directly with basic fields
+  // Fetch the full issue to get identifier and other computed fields
+  const createdIssue = await client.issue(result.issue.id);
+  if (!createdIssue) {
+    // Fallback: return what we have from create response
+    return {
+      id: result.issue.id,
+      identifier: result.issue.identifier || null,
+      title: result.issue.title || title,
+      url: result.issue.url || null,
+      priority: result.issue.priority ?? input.priority ?? null,
+      team: teamId ? { id: teamId } : null,
+      project: input.projectId ? { id: input.projectId } : null,
+    };
+  }
+
+  return transformIssue(createdIssue);
 }
 
 /**
