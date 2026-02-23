@@ -8,26 +8,35 @@
 
 ## Running the Service
 
-**NEVER** run `node index.js` or `node index.js --help` without a timeout - the service runs forever as a daemon. Use:
-```bash
-timeout 5 node index.js --help 2>&1 || true
-```
-Or just check syntax/errors with:
+**CRITICAL: NEVER run `node index.js` or `node index.js --help` without a timeout!**
+
+The service starts a daemon that runs forever. These commands will block indefinitely:
+- ❌ `node index.js`
+- ❌ `node index.js --help`
+
+To verify syntax/check for errors:
 ```bash
 node --check index.js
+node --check extensions/pi-linear-service.js
+```
+
+To test startup briefly with timeout:
+```bash
+timeout 3 env LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js 2>&1 || true
 ```
 4. Follow the exact structure and guidelines outlined
 5. Implement according to specifications
 6. Respect the defined scope and non-goals
-7. **ALWAYS** run `npm install` after package.json changes, and verify the service starts
-8. **ALWAYS** perform a reality check with `node index.js --help` or manual test
+7. **ALWAYS** run `npm install` after package.json changes, and verify syntax with `node --check`
 
 ## Before Committing and Marking Issue as Done
 
 **CRITICAL:** Verify the implementation before final commit:
 ```bash
-# Test that the service runs without errors (with required env)
-LINEAR_API_KEY="test" ASSIGNEE_ID="test" node index.js
+# Check syntax of all relevant files
+node --check index.js
+node --check extensions/pi-linear-service.js
+node --check src/linear.js
 ```
 
 ### Testing Overview

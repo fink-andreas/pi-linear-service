@@ -25,6 +25,8 @@ import {
   fetchIssuesByProject,
 } from '../src/linear.js';
 
+// ===== ARGUMENT PARSING UTILITIES =====
+
 function parseArgs(argsString) {
   if (!argsString || !argsString.trim()) return [];
   const tokens = argsString.match(/"[^"]*"|'[^']*'|\S+/g) || [];
@@ -65,6 +67,8 @@ function parseOptionalInt(raw, fieldName, { min = 0 } = {}) {
   return parsed;
 }
 
+// ===== VALIDATION =====
+
 function validateProjectConfigInput({
   projectId,
   repoPath,
@@ -103,6 +107,8 @@ function validateProjectConfigInput({
   parseOptionalInt(pollIntervalSec, 'pollIntervalSec', { min: 1 });
 }
 
+// ===== UI PROMPTS =====
+
 async function promptInput(ctx, label, currentValue = '') {
   if (!ctx?.hasUI || !ctx.ui?.input) return currentValue;
   const value = await ctx.ui.input(label, currentValue || '');
@@ -117,11 +123,7 @@ async function promptSelectAssignee(ctx, currentValue = 'me') {
   return picked;
 }
 
-async function maybePromptRuntime(ctx, args, defaults = {}) {
-  // Runtime options are optional - skip prompting by default
-  // Users can provide these via CLI flags if needed
-  return;
-}
+// ===== CONFIG HELPERS =====
 
 function effectiveConfigFromArgs(args, existing = null) {
   return {
@@ -135,74 +137,7 @@ function effectiveConfigFromArgs(args, existing = null) {
   };
 }
 
-async function collectSetupArgsWithUI(pi, ctx, args) {
-  // First, collect project reference if not provided
-  await collectProjectRefWithUI(pi, ctx, args);
-
-  if (!readFlag(args, '--id')) return;
-
-  // Only prompt for values not already provided via CLI
-  if (!readFlag(args, '--repo-path')) {
-    const cwd = process.cwd();
-    const repoPath = await promptInput(ctx, 'Repository absolute path', cwd);
-    // Use CWD as default if user didn't enter anything
-    upsertFlag(args, '--repo-path', repoPath || cwd);
-  }
-
-  if (!readFlag(args, '--assignee')) {
-    const assignee = await promptSelectAssignee(ctx, 'me');
-    if (assignee) upsertFlag(args, '--assignee', assignee);
-  }
-
-  if (!readFlag(args, '--open-states')) {
-    const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
-    if (openStates) upsertFlag(args, '--open-states', openStates);
-  }
-}
-
-async function collectReconfigureArgsWithUI(pi, ctx, args) {
-  // First, resolve project reference if needed
-  const projectRef = await collectProjectRefWithUI(pi, ctx, args);
-  if (!projectRef) {
-    if (!ctx?.hasUI) return null;
-    return null;
-  }
-
-  const projectId = projectRef.projectId;
-  const settings = await loadSettings();
-  const existing = settings.projects?.[projectId] || null;
-  if (!existing) {
-    throw new Error(`Project daemon does not exist for projectId=${projectId}. Run setup first.`);
-  }
-
-  // If no UI, just return existing - flags were provided via CLI
-  if (!ctx?.hasUI) return existing;
-
-  // Only prompt for values not already provided via CLI
-  if (!readFlag(args, '--repo-path')) {
-    const repoPath = await promptInput(ctx, 'Repository absolute path', existing.repo?.path || '');
-    if (repoPath) upsertFlag(args, '--repo-path', repoPath);
-  }
-
-  if (!readFlag(args, '--assignee')) {
-    const assignee = await promptSelectAssignee(ctx, existing.scope?.assignee || 'me');
-    if (assignee) upsertFlag(args, '--assignee', assignee);
-  }
-
-  if (!readFlag(args, '--open-states')) {
-    const openStates = await promptInput(
-      ctx,
-      'Open states (comma-separated)',
-      (existing.scope?.openStates || ['Todo', 'In Progress']).join(',')
-    );
-    if (openStates) upsertFlag(args, '--open-states', openStates);
-  }
-
-  return existing;
-}
-
 async function withCommandFeedback(ctx, actionLabel, run) {
-  // Suppress JSON logging during daemon control operations
   setQuietMode(true);
   try {
     const result = await run();
@@ -238,26 +173,20 @@ async function runStatusWithCapture(args) {
   return captured.trim();
 }
 
+// ===== API KEY MANAGEMENT =====
+
 let cachedApiKey = null;
 
-/**
- * Get Linear API key from environment or settings.
- * Environment variable takes precedence over settings.
- * @returns {Promise<string>}
- */
 async function getLinearApiKey() {
-  // Check environment first
   const envKey = process.env.LINEAR_API_KEY;
   if (envKey && envKey.trim()) {
     return envKey.trim();
   }
 
-  // Check cached value
   if (cachedApiKey) {
     return cachedApiKey;
   }
 
-  // Load from settings
   try {
     const settings = await loadSettings();
     if (settings.linearApiKey && settings.linearApiKey.trim()) {
@@ -271,26 +200,16 @@ async function getLinearApiKey() {
   throw new Error('LINEAR_API_KEY not set. Use /linear-daemon-config --api-key <key> or set environment variable.');
 }
 
-/**
- * Collect project reference from args or UI.
- * Resolves --name to --id if needed.
- * In interactive mode, shows a list of available projects.
- *
- * @param {Object} pi - pi extension API
- * @param {Object} ctx - Extension context
- * @param {Array<string>} args - Parsed args array
- * @returns {Promise<{projectId: string, projectName: string}|null>}
- */
+// ===== PROJECT REF RESOLUTION =====
+
 async function collectProjectRefWithUI(pi, ctx, args) {
   let projectId = readFlag(args, '--id');
   const projectName = readFlag(args, '--name');
 
-  // If projectId already provided, return it
   if (projectId) {
     return { projectId, projectName: projectName || null };
   }
 
-  // If projectName provided, resolve it to projectId
   if (projectName) {
     try {
       const apiKey = await getLinearApiKey();
@@ -304,12 +223,10 @@ async function collectProjectRefWithUI(pi, ctx, args) {
     }
   }
 
-  // No reference provided - try interactive selection
   if (!ctx?.hasUI) {
     return null;
   }
 
-  // Try to fetch projects for interactive selection
   let projects = null;
   let apiKey = null;
   try {
@@ -317,14 +234,11 @@ async function collectProjectRefWithUI(pi, ctx, args) {
     const client = createLinearClient(apiKey);
     projects = await fetchProjects(client);
   } catch (err) {
-    // API key not available or API error - fall back to simple input
+    // API key not available or API error
   }
 
-  // If we have projects and select UI, show selection list
   if (projects && projects.length > 0 && ctx.ui.select) {
-    // pi's ui.select expects an array of strings (labels)
     const projectNames = projects.map((p) => p.name);
-
     const selectedName = await ctx.ui.select('Select a Linear project', projectNames);
     if (selectedName) {
       const selected = projects.find((p) => p.name === selectedName);
@@ -335,11 +249,9 @@ async function collectProjectRefWithUI(pi, ctx, args) {
         return { projectId, projectName: selected.name };
       }
     }
-    return null; // User canceled selection
+    return null;
   }
 
-  // Fallback: simple input - accept project name or ID
-  // This path is reached when LINEAR_API_KEY is not available or select UI isn't supported
   const input = await promptInput(ctx, 'Linear project name or ID');
   if (!input) {
     if (ctx?.hasUI) {
@@ -352,14 +264,11 @@ async function collectProjectRefWithUI(pi, ctx, args) {
     return null;
   }
 
-  // If it looks like a UUID or test ID (alphanumeric with hyphens, or short ID), use it directly
   if (/^[a-zA-Z0-9-]+$/.test(input) && !apiKey) {
-    // No API key available - use input as project ID directly
     upsertFlag(args, '--id', input);
     return { projectId: input, projectName: null };
   }
 
-  // Try to resolve as project name if we have API key
   if (apiKey) {
     try {
       const client = createLinearClient(apiKey);
@@ -372,23 +281,71 @@ async function collectProjectRefWithUI(pi, ctx, args) {
     }
   }
 
-  // No API key - use input as project ID
   upsertFlag(args, '--id', input);
   return { projectId: input, projectName: null };
 }
 
-function toTextResult(text, details = {}) {
-  return {
-    content: [{ type: 'text', text }],
-    details,
-  };
+async function collectSetupArgsWithUI(pi, ctx, args) {
+  await collectProjectRefWithUI(pi, ctx, args);
+
+  if (!readFlag(args, '--id')) return;
+
+  if (!readFlag(args, '--repo-path')) {
+    const cwd = process.cwd();
+    const repoPath = await promptInput(ctx, 'Repository absolute path', cwd);
+    upsertFlag(args, '--repo-path', repoPath || cwd);
+  }
+
+  if (!readFlag(args, '--assignee')) {
+    const assignee = await promptSelectAssignee(ctx, 'me');
+    if (assignee) upsertFlag(args, '--assignee', assignee);
+  }
+
+  if (!readFlag(args, '--open-states')) {
+    const openStates = await promptInput(ctx, 'Open states (comma-separated)', 'Todo, In Progress');
+    if (openStates) upsertFlag(args, '--open-states', openStates);
+  }
 }
 
-function ensureNonEmpty(value, fieldName) {
-  const text = String(value || '').trim();
-  if (!text) throw new Error(`Missing required field: ${fieldName}`);
-  return text;
+async function collectReconfigureArgsWithUI(pi, ctx, args) {
+  const projectRef = await collectProjectRefWithUI(pi, ctx, args);
+  if (!projectRef) {
+    if (!ctx?.hasUI) return null;
+    return null;
+  }
+
+  const projectId = projectRef.projectId;
+  const settings = await loadSettings();
+  const existing = settings.projects?.[projectId] || null;
+  if (!existing) {
+    throw new Error(`Project daemon does not exist for projectId=${projectId}. Run setup first.`);
+  }
+
+  if (!ctx?.hasUI) return existing;
+
+  if (!readFlag(args, '--repo-path')) {
+    const repoPath = await promptInput(ctx, 'Repository absolute path', existing.repo?.path || '');
+    if (repoPath) upsertFlag(args, '--repo-path', repoPath);
+  }
+
+  if (!readFlag(args, '--assignee')) {
+    const assignee = await promptSelectAssignee(ctx, existing.scope?.assignee || 'me');
+    if (assignee) upsertFlag(args, '--assignee', assignee);
+  }
+
+  if (!readFlag(args, '--open-states')) {
+    const openStates = await promptInput(
+      ctx,
+      'Open states (comma-separated)',
+      (existing.scope?.openStates || ['Todo', 'In Progress']).join(',')
+    );
+    if (openStates) upsertFlag(args, '--open-states', openStates);
+  }
+
+  return existing;
 }
+
+// ===== GIT OPERATIONS =====
 
 async function runGit(pi, args) {
   if (typeof pi.exec !== 'function') {
@@ -434,333 +391,374 @@ async function startGitBranchForIssue(pi, branchName, fromRef = 'HEAD', onBranch
   return { action: 'switched', branchName };
 }
 
-function registerLinearIssueTools(pi) {
+// ===== RESULT FORMATTING =====
+
+function toTextResult(text, details = {}) {
+  return {
+    content: [{ type: 'text', text }],
+    details,
+  };
+}
+
+function ensureNonEmpty(value, fieldName) {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`Missing required field: ${fieldName}`);
+  return text;
+}
+
+// ===== TOOL REGISTRATION =====
+
+function registerLinearTools(pi) {
   if (typeof pi.registerTool !== 'function') return;
 
+  // ===== LINEAR ISSUE TOOL =====
   pi.registerTool({
-    name: 'linear_project_list',
-    label: 'Linear Project List',
-    description: 'List all accessible Linear projects',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    },
-    async execute(_toolCallId, _params) {
-      const apiKey = await getLinearApiKey();
-      const client = createLinearClient(apiKey);
-
-      const projects = await fetchProjects(client);
-
-      if (projects.length === 0) {
-        return toTextResult('No projects found', { projectCount: 0 });
-      }
-
-      const lines = [`## Projects (${projects.length})\n`];
-
-      for (const project of projects) {
-        lines.push(`- **${project.name}** \`${project.id}\``);
-      }
-
-      return toTextResult(lines.join('\n'), {
-        projectCount: projects.length,
-        projects: projects.map(p => ({ id: p.id, name: p.name })),
-      });
-    },
-  });
-
-  pi.registerTool({
-    name: 'linear_issue_start',
-    label: 'Linear Issue Start',
-    description: 'Start a Linear issue: create/switch git branch, then move issue to team started workflow state',
+    name: 'linear_issue',
+    label: 'Linear Issue',
+    description: 'Interact with Linear issues. Actions: list, view, update, comment, start',
     parameters: {
       type: 'object',
       properties: {
-        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
-        branch: { type: 'string', description: 'Optional custom branch name override' },
-        fromRef: { type: 'string', description: 'Optional git ref to branch from (default: HEAD)' },
-        onBranchExists: {
+        action: {
           type: 'string',
-          enum: ['switch', 'suffix'],
-          description: 'When branch exists: switch to it or create suffixed branch',
+          enum: ['list', 'view', 'update', 'comment', 'start'],
+          description: 'Action to perform on the issue(s)',
         },
-      },
-      required: ['issue'],
-      additionalProperties: false,
-    },
-    async execute(_toolCallId, params) {
-      const apiKey = await getLinearApiKey();
-      const client = createLinearClient(apiKey);
-      const issue = ensureNonEmpty(params.issue, 'issue');
-      const prepared = await prepareIssueStart(client, issue);
-
-      const desiredBranch = params.branch || prepared.branchName;
-      if (!desiredBranch) {
-        throw new Error(
-          `No branch name resolved for issue ${prepared.issue.identifier}. Provide the 'branch' parameter explicitly.`
-        );
-      }
-
-      const gitResult = await startGitBranchForIssue(
-        pi,
-        desiredBranch,
-        params.fromRef || 'HEAD',
-        params.onBranchExists || 'switch'
-      );
-
-      const updatedIssue = await setIssueState(
-        client,
-        prepared.issue.id,
-        prepared.startedState.id
-      );
-
-      const compactTitle = String(updatedIssue.title || prepared.issue?.title || '').trim().toLowerCase();
-      const summary = compactTitle
-        ? `Started issue ${updatedIssue.identifier} (${compactTitle})`
-        : `Started issue ${updatedIssue.identifier}`;
-
-      return toTextResult(summary, {
-        issueId: updatedIssue.id,
-        identifier: updatedIssue.identifier,
-        state: updatedIssue.state,
-        startedState: prepared.startedState,
-        git: gitResult,
-      });
-    },
-  });
-
-  pi.registerTool({
-    name: 'linear_issue_comment_add',
-    label: 'Linear Issue Comment Add',
-    description: 'Add a comment to a Linear issue',
-    parameters: {
-      type: 'object',
-      properties: {
-        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
-        body: { type: 'string', description: 'Comment body (markdown)' },
-        parentCommentId: { type: 'string', description: 'Optional parent comment id for reply' },
-      },
-      required: ['issue', 'body'],
-      additionalProperties: false,
-    },
-    async execute(_toolCallId, params) {
-      const apiKey = await getLinearApiKey();
-      const client = createLinearClient(apiKey);
-      const issue = ensureNonEmpty(params.issue, 'issue');
-      const body = ensureNonEmpty(params.body, 'body');
-      const result = await addIssueComment(client, issue, body, params.parentCommentId);
-
-      return toTextResult(
-        `Added comment to issue ${result.issue.identifier}`,
-        {
-          issueId: result.issue.id,
-          identifier: result.issue.identifier,
-          commentId: result.comment.id,
-        }
-      );
-    },
-  });
-
-  pi.registerTool({
-    name: 'linear_issue_update',
-    label: 'Linear Issue Update',
-    description: 'Update selected fields of a Linear issue',
-    parameters: {
-      type: 'object',
-      properties: {
-        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
-        title: { type: 'string', description: 'New issue title' },
-        description: { type: 'string', description: 'New issue description' },
-        priority: { type: 'number', description: 'Priority 0..4' },
-        state: { type: 'string', description: 'Target state name or state id' },
-      },
-      required: ['issue'],
-      additionalProperties: false,
-    },
-    async execute(_toolCallId, params) {
-      const apiKey = await getLinearApiKey();
-      const client = createLinearClient(apiKey);
-      const issue = ensureNonEmpty(params.issue, 'issue');
-
-      const result = await updateIssue(client, issue, {
-        title: params.title,
-        description: params.description,
-        priority: params.priority,
-        state: params.state,
-      });
-
-      const friendlyChanges = result.changed.map((field) => (field === 'stateId' ? 'state' : field));
-      const changeSummaryParts = [];
-
-      if (friendlyChanges.includes('state') && result.issue?.state?.name) {
-        changeSummaryParts.push(`state: ${result.issue.state.name}`);
-      }
-
-      for (const field of friendlyChanges) {
-        if (field !== 'state') changeSummaryParts.push(field);
-      }
-
-      const suffix = changeSummaryParts.length > 0
-        ? ` (${changeSummaryParts.join(', ')})`
-        : '';
-
-      return toTextResult(
-        `Updated issue ${result.issue.identifier}${suffix}`,
-        {
-          issueId: result.issue.id,
-          identifier: result.issue.identifier,
-          changed: friendlyChanges,
-          state: result.issue.state,
-          priority: result.issue.priority,
-        }
-      );
-    },
-  });
-
-  pi.registerTool({
-    name: 'linear_issue_view',
-    label: 'Linear Issue View',
-    description: 'View detailed issue information including description, comments, parent, children, and attachments as markdown',
-    parameters: {
-      type: 'object',
-      properties: {
-        issue: { type: 'string', description: 'Issue key (ABC-123) or Linear issue id' },
-        includeComments: { type: 'boolean', description: 'Include comments in output (default: true)' },
-      },
-      required: ['issue'],
-      additionalProperties: false,
-    },
-    async execute(_toolCallId, params) {
-      const apiKey = await getLinearApiKey();
-      const client = createLinearClient(apiKey);
-      const issue = ensureNonEmpty(params.issue, 'issue');
-      const includeComments = params.includeComments !== false;
-
-      const issueData = await fetchIssueDetails(client, issue, { includeComments });
-      const markdown = formatIssueAsMarkdown(issueData, { includeComments });
-
-      return {
-        content: [{ type: 'text', text: markdown }],
-        details: {
-          issueId: issueData.id,
-          identifier: issueData.identifier,
-          title: issueData.title,
-          state: issueData.state,
-          url: issueData.url,
+        // Issue identification (for view, update, comment, start)
+        issue: {
+          type: 'string',
+          description: 'Issue key (ABC-123) or Linear issue ID (for view, update, comment, start)',
         },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: 'linear_issue_list',
-    label: 'Linear Issue List',
-    description: 'List all issues with specific status in a Linear project (default project is the repo name)',
-    parameters: {
-      type: 'object',
-      properties: {
+        // List parameters
         project: {
           type: 'string',
-          description: 'Project name or ID (default: current repo directory name)',
+          description: 'Project name or ID for listing issues (default: current repo directory name)',
         },
         states: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Filter by state names (e.g., ["Todo", "In Progress"]). Empty = all states',
+          description: 'Filter by state names for listing (e.g., ["Todo", "In Progress"])',
         },
         assignee: {
           type: 'string',
-          description: 'Assignee filter: "me" for current user, "all" for all assignees (default: all)',
+          description: 'Assignee filter for listing: "me" for current user, "all" for all (default: all)',
         },
         limit: {
           type: 'number',
-          description: 'Maximum number of issues to return (default: 50)',
+          description: 'Maximum number of issues to list (default: 50)',
+        },
+        // View parameters
+        includeComments: {
+          type: 'boolean',
+          description: 'Include comments when viewing issue (default: true)',
+        },
+        // Update parameters
+        title: {
+          type: 'string',
+          description: 'New issue title (for update)',
+        },
+        description: {
+          type: 'string',
+          description: 'New issue description (for update)',
+        },
+        priority: {
+          type: 'number',
+          description: 'Priority 0..4 (for update)',
+        },
+        state: {
+          type: 'string',
+          description: 'Target state name or ID (for update)',
+        },
+        // Comment parameters
+        body: {
+          type: 'string',
+          description: 'Comment body in markdown (for comment)',
+        },
+        parentCommentId: {
+          type: 'string',
+          description: 'Parent comment ID for reply (for comment)',
+        },
+        // Start parameters
+        branch: {
+          type: 'string',
+          description: 'Custom branch name override (for start)',
+        },
+        fromRef: {
+          type: 'string',
+          description: 'Git ref to branch from (default: HEAD, for start)',
+        },
+        onBranchExists: {
+          type: 'string',
+          enum: ['switch', 'suffix'],
+          description: 'When branch exists: switch to it or create suffixed branch (for start)',
         },
       },
-      required: [],
+      required: ['action'],
       additionalProperties: false,
     },
     async execute(_toolCallId, params) {
       const apiKey = await getLinearApiKey();
       const client = createLinearClient(apiKey);
 
-      // Resolve project reference
-      let projectRef = params.project;
-      if (!projectRef) {
-        // Default to current repo directory name
-        projectRef = process.cwd().split('/').pop();
+      switch (params.action) {
+        case 'list':
+          return await executeIssueList(client, params);
+
+        case 'view':
+          return await executeIssueView(client, params);
+
+        case 'update':
+          return await executeIssueUpdate(client, params);
+
+        case 'comment':
+          return await executeIssueComment(client, params);
+
+        case 'start':
+          return await executeIssueStart(client, pi, params);
+
+        default:
+          throw new Error(`Unknown action: ${params.action}`);
       }
+    },
+  });
 
-      const resolved = await resolveProjectRef(client, projectRef);
+  // ===== LINEAR PROJECT TOOL =====
+  pi.registerTool({
+    name: 'linear_project',
+    label: 'Linear Project',
+    description: 'Interact with Linear projects. Actions: list',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list'],
+          description: 'Action to perform on the project(s)',
+        },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
 
-      // Resolve assignee if "me" is specified
-      let assigneeId = null;
-      if (params.assignee === 'me') {
-        const viewer = await client.viewer;
-        assigneeId = viewer.id;
+      switch (params.action) {
+        case 'list':
+          return await executeProjectList(client);
+
+        default:
+          throw new Error(`Unknown action: ${params.action}`);
       }
-
-      // Fetch issues
-      const { issues, truncated } = await fetchIssuesByProject(
-        client,
-        resolved.id,
-        params.states || null,
-        {
-          assigneeId,
-          limit: params.limit || 50,
-        }
-      );
-
-      // Format output
-      if (issues.length === 0) {
-        return toTextResult(`No issues found in project "${resolved.name}"`, {
-          projectId: resolved.id,
-          projectName: resolved.name,
-          issueCount: 0,
-        });
-      }
-
-      const lines = [`## Issues in project "${resolved.name}" (${issues.length}${truncated ? '+' : ''})\n`];
-
-      for (const issue of issues) {
-        const stateLabel = issue.state?.name || 'Unknown';
-        const assigneeLabel = issue.assignee?.displayName || 'Unassigned';
-        const priorityLabel = issue.priority !== undefined && issue.priority !== null
-          ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
-          : null;
-
-        const metaParts = [`[${stateLabel}]`, `@${assigneeLabel}`];
-        if (priorityLabel) metaParts.push(priorityLabel);
-
-        lines.push(`- **${issue.identifier}**: ${issue.title} _${metaParts.join(' ')}_`);
-      }
-
-      if (truncated) {
-        lines.push('\n_Results may be truncated. Use --limit to fetch more._');
-      }
-
-      return toTextResult(lines.join('\n'), {
-        projectId: resolved.id,
-        projectName: resolved.name,
-        issueCount: issues.length,
-        truncated,
-      });
     },
   });
 }
 
+// ===== ACTION IMPLEMENTATIONS =====
+
+async function executeIssueList(client, params) {
+  // Resolve project reference
+  let projectRef = params.project;
+  if (!projectRef) {
+    projectRef = process.cwd().split('/').pop();
+  }
+
+  const resolved = await resolveProjectRef(client, projectRef);
+
+  // Resolve assignee if "me" is specified
+  let assigneeId = null;
+  if (params.assignee === 'me') {
+    const viewer = await client.viewer;
+    assigneeId = viewer.id;
+  }
+
+  // Fetch issues
+  const { issues, truncated } = await fetchIssuesByProject(
+    client,
+    resolved.id,
+    params.states || null,
+    {
+      assigneeId,
+      limit: params.limit || 50,
+    }
+  );
+
+  // Format output
+  if (issues.length === 0) {
+    return toTextResult(`No issues found in project "${resolved.name}"`, {
+      projectId: resolved.id,
+      projectName: resolved.name,
+      issueCount: 0,
+    });
+  }
+
+  const lines = [`## Issues in project "${resolved.name}" (${issues.length}${truncated ? '+' : ''})\n`];
+
+  for (const issue of issues) {
+    const stateLabel = issue.state?.name || 'Unknown';
+    const assigneeLabel = issue.assignee?.displayName || 'Unassigned';
+    const priorityLabel = issue.priority !== undefined && issue.priority !== null
+      ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
+      : null;
+
+    const metaParts = [`[${stateLabel}]`, `@${assigneeLabel}`];
+    if (priorityLabel) metaParts.push(priorityLabel);
+
+    lines.push(`- **${issue.identifier}**: ${issue.title} _${metaParts.join(' ')}_`);
+  }
+
+  if (truncated) {
+    lines.push('\n_Results may be truncated. Use limit parameter to fetch more._');
+  }
+
+  return toTextResult(lines.join('\n'), {
+    projectId: resolved.id,
+    projectName: resolved.name,
+    issueCount: issues.length,
+    truncated,
+  });
+}
+
+async function executeIssueView(client, params) {
+  const issue = ensureNonEmpty(params.issue, 'issue');
+  const includeComments = params.includeComments !== false;
+
+  const issueData = await fetchIssueDetails(client, issue, { includeComments });
+  const markdown = formatIssueAsMarkdown(issueData, { includeComments });
+
+  return {
+    content: [{ type: 'text', text: markdown }],
+    details: {
+      issueId: issueData.id,
+      identifier: issueData.identifier,
+      title: issueData.title,
+      state: issueData.state,
+      url: issueData.url,
+    },
+  };
+}
+
+async function executeIssueUpdate(client, params) {
+  const issue = ensureNonEmpty(params.issue, 'issue');
+
+  const result = await updateIssue(client, issue, {
+    title: params.title,
+    description: params.description,
+    priority: params.priority,
+    state: params.state,
+  });
+
+  const friendlyChanges = result.changed.map((field) => (field === 'stateId' ? 'state' : field));
+  const changeSummaryParts = [];
+
+  if (friendlyChanges.includes('state') && result.issue?.state?.name) {
+    changeSummaryParts.push(`state: ${result.issue.state.name}`);
+  }
+
+  for (const field of friendlyChanges) {
+    if (field !== 'state') changeSummaryParts.push(field);
+  }
+
+  const suffix = changeSummaryParts.length > 0
+    ? ` (${changeSummaryParts.join(', ')})`
+    : '';
+
+  return toTextResult(
+    `Updated issue ${result.issue.identifier}${suffix}`,
+    {
+      issueId: result.issue.id,
+      identifier: result.issue.identifier,
+      changed: friendlyChanges,
+      state: result.issue.state,
+      priority: result.issue.priority,
+    }
+  );
+}
+
+async function executeIssueComment(client, params) {
+  const issue = ensureNonEmpty(params.issue, 'issue');
+  const body = ensureNonEmpty(params.body, 'body');
+  const result = await addIssueComment(client, issue, body, params.parentCommentId);
+
+  return toTextResult(
+    `Added comment to issue ${result.issue.identifier}`,
+    {
+      issueId: result.issue.id,
+      identifier: result.issue.identifier,
+      commentId: result.comment.id,
+    }
+  );
+}
+
+async function executeIssueStart(client, pi, params) {
+  const issue = ensureNonEmpty(params.issue, 'issue');
+  const prepared = await prepareIssueStart(client, issue);
+
+  const desiredBranch = params.branch || prepared.branchName;
+  if (!desiredBranch) {
+    throw new Error(
+      `No branch name resolved for issue ${prepared.issue.identifier}. Provide the 'branch' parameter explicitly.`
+    );
+  }
+
+  const gitResult = await startGitBranchForIssue(
+    pi,
+    desiredBranch,
+    params.fromRef || 'HEAD',
+    params.onBranchExists || 'switch'
+  );
+
+  const updatedIssue = await setIssueState(
+    client,
+    prepared.issue.id,
+    prepared.startedState.id
+  );
+
+  const compactTitle = String(updatedIssue.title || prepared.issue?.title || '').trim().toLowerCase();
+  const summary = compactTitle
+    ? `Started issue ${updatedIssue.identifier} (${compactTitle})`
+    : `Started issue ${updatedIssue.identifier}`;
+
+  return toTextResult(summary, {
+    issueId: updatedIssue.id,
+    identifier: updatedIssue.identifier,
+    state: updatedIssue.state,
+    startedState: prepared.startedState,
+    git: gitResult,
+  });
+}
+
+async function executeProjectList(client) {
+  const projects = await fetchProjects(client);
+
+  if (projects.length === 0) {
+    return toTextResult('No projects found', { projectCount: 0 });
+  }
+
+  const lines = [`## Projects (${projects.length})\n`];
+
+  for (const project of projects) {
+    lines.push(`- **${project.name}** \`${project.id}\``);
+  }
+
+  return toTextResult(lines.join('\n'), {
+    projectCount: projects.length,
+    projects: projects.map(p => ({ id: p.id, name: p.name })),
+  });
+}
+
+// ===== EXTENSION ENTRY POINT =====
+
 export default function piLinearServiceExtension(pi) {
-  registerLinearIssueTools(pi);
+  registerLinearTools(pi);
+
   pi.registerCommand('linear-daemon-setup', {
     description: 'Interactive setup for project daemon config (use --id or --name, or run interactively)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
       await collectSetupArgsWithUI(pi, ctx, args);
 
-      // Check if user canceled or no project was provided
       if (!readFlag(args, '--id')) {
-        // collectProjectRefWithUI already showed a notification explaining why
         return;
       }
 
@@ -797,7 +795,6 @@ export default function piLinearServiceExtension(pi) {
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
 
-      // Try to get project reference, but don't require it for status
       try {
         await collectProjectRefWithUI(pi, ctx, args);
       } catch {
@@ -871,7 +868,6 @@ export default function piLinearServiceExtension(pi) {
         const settings = await loadSettings();
         settings.linearApiKey = apiKey;
         await saveSettings(settings);
-        // Clear cache so new key is picked up
         cachedApiKey = null;
         if (ctx?.hasUI) {
           ctx.ui.notify('LINEAR_API_KEY saved to settings', 'info');
@@ -879,7 +875,6 @@ export default function piLinearServiceExtension(pi) {
         return;
       }
 
-      // Show current config
       const settings = await loadSettings();
       const hasKey = !!(settings.linearApiKey || process.env.LINEAR_API_KEY);
       const keySource = process.env.LINEAR_API_KEY ? 'environment' : (settings.linearApiKey ? 'settings' : 'not set');
@@ -888,7 +883,7 @@ export default function piLinearServiceExtension(pi) {
         customType: 'pi-linear-service',
         content: `Configuration:
   LINEAR_API_KEY: ${hasKey ? 'configured' : 'not set'} (source: ${keySource})
-  
+
 To set API key:
   /linear-daemon-config --api-key lin_xxx
 
