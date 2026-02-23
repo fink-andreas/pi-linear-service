@@ -18,8 +18,11 @@ import {
   setIssueState,
   addIssueComment,
   updateIssue,
+  createIssue,
   fetchProjects,
+  fetchTeams,
   resolveProjectRef,
+  resolveTeamRef,
   fetchIssueDetails,
   formatIssueAsMarkdown,
   fetchIssuesByProject,
@@ -415,13 +418,13 @@ function registerLinearTools(pi) {
   pi.registerTool({
     name: 'linear_issue',
     label: 'Linear Issue',
-    description: 'Interact with Linear issues. Actions: list, view, update, comment, start',
+    description: 'Interact with Linear issues. Actions: list, view, create, update, comment, start',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'view', 'update', 'comment', 'start'],
+          enum: ['list', 'view', 'create', 'update', 'comment', 'start'],
           description: 'Action to perform on the issue(s)',
         },
         // Issue identification (for view, update, comment, start)
@@ -432,7 +435,7 @@ function registerLinearTools(pi) {
         // List parameters
         project: {
           type: 'string',
-          description: 'Project name or ID for listing issues (default: current repo directory name)',
+          description: 'Project name or ID for listing/creating issues (default: current repo directory name)',
         },
         states: {
           type: 'array',
@@ -452,22 +455,31 @@ function registerLinearTools(pi) {
           type: 'boolean',
           description: 'Include comments when viewing issue (default: true)',
         },
-        // Update parameters
+        // Create/Update parameters
         title: {
           type: 'string',
-          description: 'New issue title (for update)',
+          description: 'Issue title (required for create, optional for update)',
         },
         description: {
           type: 'string',
-          description: 'New issue description (for update)',
+          description: 'Issue description in markdown (for create, update)',
         },
         priority: {
           type: 'number',
-          description: 'Priority 0..4 (for update)',
+          description: 'Priority 0..4 (for create, update)',
         },
         state: {
           type: 'string',
           description: 'Target state name or ID (for update)',
+        },
+        // Create-specific parameters
+        team: {
+          type: 'string',
+          description: 'Team key (e.g., "ENG") or name (required for create)',
+        },
+        parentId: {
+          type: 'string',
+          description: 'Parent issue ID for creating sub-issues (for create)',
         },
         // Comment parameters
         body: {
@@ -506,6 +518,9 @@ function registerLinearTools(pi) {
 
         case 'view':
           return await executeIssueView(client, params);
+
+        case 'create':
+          return await executeIssueCreate(client, params);
 
         case 'update':
           return await executeIssueUpdate(client, params);
@@ -636,6 +651,60 @@ async function executeIssueView(client, params) {
       url: issueData.url,
     },
   };
+}
+
+async function executeIssueCreate(client, params) {
+  const title = ensureNonEmpty(params.title, 'title');
+  const teamRef = ensureNonEmpty(params.team, 'team');
+
+  // Resolve team
+  const team = await resolveTeamRef(client, teamRef);
+
+  // Build create input
+  const createInput = {
+    teamId: team.id,
+    title,
+  };
+
+  if (params.description) {
+    createInput.description = params.description;
+  }
+
+  if (params.priority !== undefined && params.priority !== null) {
+    createInput.priority = params.priority;
+  }
+
+  if (params.parentId) {
+    createInput.parentId = params.parentId;
+  }
+
+  // Resolve project if specified
+  if (params.project) {
+    const project = await resolveProjectRef(client, params.project);
+    createInput.projectId = project.id;
+  }
+
+  const issue = await createIssue(client, createInput);
+
+  const projectLabel = issue.project?.name || 'No project';
+  const priorityLabel = issue.priority !== undefined && issue.priority !== null
+    ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
+    : null;
+
+  const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`];
+  if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
+
+  return toTextResult(
+    `Created issue **${issue.identifier}**: ${issue.title}\n\n_${metaParts.join(' | ')}_`,
+    {
+      issueId: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      team: issue.team,
+      project: issue.project,
+      url: issue.url,
+    }
+  );
 }
 
 async function executeIssueUpdate(client, params) {

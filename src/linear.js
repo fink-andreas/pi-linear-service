@@ -224,6 +224,70 @@ export async function fetchProjects(client) {
 }
 
 /**
+ * Fetch all accessible teams from Linear API
+ * @param {LinearClient} client - Linear SDK client
+ * @returns {Promise<Array<{id: string, key: string, name: string}>>}
+ */
+export async function fetchTeams(client) {
+  const result = await client.teams();
+  const nodes = result.nodes ?? [];
+
+  debug('Fetched Linear teams', {
+    teamCount: nodes.length,
+    teams: nodes.map((t) => ({ id: t.id, key: t.key, name: t.name })),
+  });
+
+  return nodes.map(t => ({ id: t.id, key: t.key, name: t.name }));
+}
+
+/**
+ * Resolve a team reference (key, name, or ID) to a team object
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} teamRef - Team key, name, or ID
+ * @returns {Promise<{id: string, key: string, name: string}>}
+ */
+export async function resolveTeamRef(client, teamRef) {
+  const ref = String(teamRef || '').trim();
+  if (!ref) {
+    throw new Error('Missing team reference');
+  }
+
+  const teams = await fetchTeams(client);
+
+  // If it looks like a Linear ID (UUID), try direct lookup first
+  if (isLinearId(ref)) {
+    const byId = teams.find((t) => t.id === ref);
+    if (byId) {
+      return byId;
+    }
+    throw new Error(`Team not found with ID: ${ref}`);
+  }
+
+  // Try exact key match (e.g., "ENG")
+  const byKey = teams.find((t) => t.key === ref);
+  if (byKey) {
+    return byKey;
+  }
+
+  // Try exact name match
+  const exactName = teams.find((t) => t.name === ref);
+  if (exactName) {
+    return exactName;
+  }
+
+  // Try case-insensitive key or name match
+  const lowerRef = ref.toLowerCase();
+  const insensitiveMatch = teams.find(
+    (t) => t.key?.toLowerCase() === lowerRef || t.name?.toLowerCase() === lowerRef
+  );
+  if (insensitiveMatch) {
+    return insensitiveMatch;
+  }
+
+  throw new Error(`Team not found: ${ref}. Available teams: ${teams.map((t) => `${t.key} (${t.name})`).join(', ')}`);
+}
+
+/**
  * Resolve an issue by ID or identifier
  * @param {LinearClient} client - Linear SDK client
  * @param {string} issueRef - Issue identifier (ABC-123) or Linear issue ID
@@ -435,6 +499,68 @@ export async function setIssueState(client, issueId, stateId) {
   const result = await issue.update({ stateId });
   if (!result.success) {
     throw new Error('Failed to update issue state');
+  }
+
+  return transformIssue(result.issue);
+}
+
+/**
+ * Create a new issue
+ * @param {LinearClient} client - Linear SDK client
+ * @param {Object} input - Issue creation input
+ * @param {string} input.teamId - Team ID (required)
+ * @param {string} input.title - Issue title (required)
+ * @param {string} [input.description] - Issue description
+ * @param {string} [input.projectId] - Project ID
+ * @param {string} [input.priority] - Priority 0-4
+ * @param {string} [input.assigneeId] - Assignee ID
+ * @param {string} [input.parentId] - Parent issue ID for sub-issues
+ * @returns {Promise<Object>} Created issue
+ */
+export async function createIssue(client, input) {
+  const title = String(input.title || '').trim();
+  if (!title) {
+    throw new Error('Missing required field: title');
+  }
+
+  const teamId = String(input.teamId || '').trim();
+  if (!teamId) {
+    throw new Error('Missing required field: teamId');
+  }
+
+  const createInput = {
+    teamId,
+    title,
+  };
+
+  if (input.description !== undefined) {
+    createInput.description = String(input.description);
+  }
+
+  if (input.projectId !== undefined) {
+    createInput.projectId = input.projectId;
+  }
+
+  if (input.priority !== undefined) {
+    const parsed = Number.parseInt(String(input.priority), 10);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 4) {
+      throw new Error(`Invalid priority: ${input.priority}. Valid range: 0..4`);
+    }
+    createInput.priority = parsed;
+  }
+
+  if (input.assigneeId !== undefined) {
+    createInput.assigneeId = input.assigneeId;
+  }
+
+  if (input.parentId !== undefined) {
+    createInput.parentId = input.parentId;
+  }
+
+  const result = await client.createIssue(createInput);
+
+  if (!result.success) {
+    throw new Error('Failed to create issue');
   }
 
   return transformIssue(result.issue);
