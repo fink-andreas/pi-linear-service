@@ -23,6 +23,7 @@ import {
   fetchTeams,
   resolveProjectRef,
   resolveTeamRef,
+  getTeamWorkflowStates,
   fetchIssueDetails,
   formatIssueAsMarkdown,
   fetchIssuesByProject,
@@ -470,7 +471,7 @@ function registerLinearTools(pi) {
         },
         state: {
           type: 'string',
-          description: 'Target state name or ID (for update)',
+          description: 'Target state name or ID (for create, update)',
         },
         // Create-specific parameters
         team: {
@@ -480,6 +481,11 @@ function registerLinearTools(pi) {
         parentId: {
           type: 'string',
           description: 'Parent issue ID for creating sub-issues (for create)',
+        },
+        // Create/Update assignee
+        assignee: {
+          type: 'string',
+          description: 'Assignee: "me" for current user, or assignee ID (for create, update)',
         },
         // Comment parameters
         body: {
@@ -678,6 +684,24 @@ async function executeIssueCreate(client, params) {
     createInput.parentId = params.parentId;
   }
 
+  // Resolve assignee if "me" is specified
+  if (params.assignee === 'me') {
+    const viewer = await client.viewer;
+    createInput.assigneeId = viewer.id;
+  } else if (params.assignee) {
+    createInput.assigneeId = params.assignee;
+  }
+
+  // Resolve state if specified
+  if (params.state) {
+    const states = await getTeamWorkflowStates(client, team.id);
+    const target = params.state.trim().toLowerCase();
+    const state = states.find(s => s.name.toLowerCase() === target || s.id === params.state);
+    if (state) {
+      createInput.stateId = state.id;
+    }
+  }
+
   // Resolve project - default to current directory name if not specified
   let projectRef = params.project;
   if (!projectRef) {
@@ -697,8 +721,10 @@ async function executeIssueCreate(client, params) {
   const priorityLabel = issue.priority !== undefined && issue.priority !== null
     ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
     : null;
+  const stateLabel = issue.state?.name || 'Unknown';
+  const assigneeLabel = issue.assignee?.displayName || 'Unassigned';
 
-  const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`];
+  const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`, `State: ${stateLabel}`, `Assignee: ${assigneeLabel}`];
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
   return toTextResult(
@@ -709,6 +735,8 @@ async function executeIssueCreate(client, params) {
       title: issue.title,
       team: issue.team,
       project: issue.project,
+      state: issue.state,
+      assignee: issue.assignee,
       url: issue.url,
     }
   );
