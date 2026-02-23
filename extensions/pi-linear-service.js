@@ -22,6 +22,7 @@ import {
   resolveProjectRef,
   fetchIssueDetails,
   formatIssueAsMarkdown,
+  fetchIssuesByProject,
 } from '../src/linear.js';
 
 function parseArgs(argsString) {
@@ -616,6 +617,102 @@ function registerLinearIssueTools(pi) {
           url: issueData.url,
         },
       };
+    },
+  });
+
+  pi.registerTool({
+    name: 'linear_issue_list',
+    label: 'Linear Issue List',
+    description: 'List all issues with specific status in a Linear project (default project is the repo name)',
+    parameters: {
+      type: 'object',
+      properties: {
+        project: {
+          type: 'string',
+          description: 'Project name or ID (default: current repo directory name)',
+        },
+        states: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Filter by state names (e.g., ["Todo", "In Progress"]). Empty = all states',
+        },
+        assignee: {
+          type: 'string',
+          description: 'Assignee filter: "me" for current user, "all" for all assignees (default: all)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of issues to return (default: 50)',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
+
+      // Resolve project reference
+      let projectRef = params.project;
+      if (!projectRef) {
+        // Default to current repo directory name
+        projectRef = process.cwd().split('/').pop();
+      }
+
+      const resolved = await resolveProjectRef(client, projectRef);
+
+      // Resolve assignee if "me" is specified
+      let assigneeId = null;
+      if (params.assignee === 'me') {
+        const viewer = await client.viewer;
+        assigneeId = viewer.id;
+      }
+
+      // Fetch issues
+      const { issues, truncated } = await fetchIssuesByProject(
+        client,
+        resolved.id,
+        params.states || null,
+        {
+          assigneeId,
+          limit: params.limit || 50,
+        }
+      );
+
+      // Format output
+      if (issues.length === 0) {
+        return toTextResult(`No issues found in project "${resolved.name}"`, {
+          projectId: resolved.id,
+          projectName: resolved.name,
+          issueCount: 0,
+        });
+      }
+
+      const lines = [`## Issues in project "${resolved.name}" (${issues.length}${truncated ? '+' : ''})\n`];
+
+      for (const issue of issues) {
+        const stateLabel = issue.state?.name || 'Unknown';
+        const assigneeLabel = issue.assignee?.displayName || 'Unassigned';
+        const priorityLabel = issue.priority !== undefined && issue.priority !== null
+          ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
+          : null;
+
+        const metaParts = [`[${stateLabel}]`, `@${assigneeLabel}`];
+        if (priorityLabel) metaParts.push(priorityLabel);
+
+        lines.push(`- **${issue.identifier}**: ${issue.title} _${metaParts.join(' ')}_`);
+      }
+
+      if (truncated) {
+        lines.push('\n_Results may be truncated. Use --limit to fetch more._');
+      }
+
+      return toTextResult(lines.join('\n'), {
+        projectId: resolved.id,
+        projectName: resolved.name,
+        issueCount: issues.length,
+        truncated,
+      });
     },
   });
 }

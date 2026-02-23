@@ -149,6 +149,64 @@ export async function fetchIssues(client, assigneeId, openStates, limit) {
 }
 
 /**
+ * Fetch issues by project and optional state filter
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} projectId - Project ID to filter by
+ * @param {Array<string>|null} states - List of state names to include (null = all states)
+ * @param {Object} options
+ * @param {string|null} options.assigneeId - Assignee ID to filter by (null = all assignees)
+ * @param {number} options.limit - Maximum number of issues to fetch
+ * @returns {Promise<{issues: Array, truncated: boolean}>}
+ */
+export async function fetchIssuesByProject(client, projectId, states, options = {}) {
+  const { assigneeId = null, limit = 50 } = options;
+
+  const filter = {
+    project: { id: { eq: projectId } },
+  };
+
+  if (states && states.length > 0) {
+    filter.state = { name: { in: states } };
+  }
+
+  if (assigneeId) {
+    filter.assignee = { id: { eq: assigneeId } };
+  }
+
+  const result = await client.issues({
+    first: limit,
+    filter,
+  });
+
+  const nodes = result.nodes || [];
+  const hasNextPage = result.pageInfo?.hasNextPage ?? false;
+
+  // Transform SDK issues to plain objects
+  const issues = await Promise.all(nodes.map(transformIssue));
+
+  debug('Fetched issues by project', {
+    projectId,
+    stateCount: states?.length ?? 0,
+    issueCount: issues.length,
+    truncated: hasNextPage,
+  });
+
+  const truncated = hasNextPage || nodes.length >= limit;
+  if (truncated) {
+    warn('Issues query may be truncated', {
+      limit,
+      returned: nodes.length,
+      hasNextPage,
+    });
+  }
+
+  return {
+    issues,
+    truncated,
+  };
+}
+
+/**
  * Fetch all accessible projects from Linear API
  * @param {LinearClient} client - Linear SDK client
  * @returns {Promise<Array<{id: string, name: string}>>}
