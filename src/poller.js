@@ -4,7 +4,8 @@
 
 import { info, debug, error as logError, warn } from './logger.js';
 import { setLogLevel } from './logger.js';
-import { runSmokeQuery, fetchIssues, groupIssuesByProject } from './linear.js';
+import { createLinearClient } from './linear-client.js';
+import { fetchViewer, fetchIssues, groupIssuesByProject } from './linear.js';
 import { createSessionManager, attemptKillUnhealthySession } from './session-manager.js';
 import { RpcSessionManager } from './rpc-session-manager.js';
 
@@ -12,8 +13,9 @@ import { RpcSessionManager } from './rpc-session-manager.js';
  * Perform a single poll
  * @param {Object} config - Configuration object
  * @param {Object} sessionManager - Session manager instance
+ * @param {LinearClient} client - Linear SDK client
  */
-async function performPoll(config, sessionManager) {
+async function performPoll(config, sessionManager, client) {
   const pollStartTimestamp = Date.now();
   info('Poll started');
 
@@ -33,7 +35,7 @@ async function performPoll(config, sessionManager) {
   let viewerId = config.assigneeId;
   try {
     debug('Running Linear API smoke test query...');
-    const viewer = await runSmokeQuery(config.linearApiKey);
+    const viewer = await fetchViewer(client);
     debug('Linear API smoke query successful', {
       viewerId: viewer?.id,
       viewerName: viewer?.name,
@@ -68,7 +70,7 @@ async function performPoll(config, sessionManager) {
     });
 
     const { issues, truncated } = await fetchIssues(
-      config.linearApiKey,
+      client,
       scopeQuery.assigneeId,
       scopeQuery.openStates,
       config.linearPageLimit
@@ -450,6 +452,9 @@ export async function startPollLoop(config) {
   // Set log level from config
   setLogLevel(config.logLevel);
 
+  // Create Linear SDK client
+  const client = createLinearClient(config.linearApiKey);
+
   // Create session manager based on configuration
   const sessionManager = (config.mode || 'rpc') === 'rpc'
     ? new RpcSessionManager({
@@ -561,7 +566,7 @@ export async function startPollLoop(config) {
   info('Performing initial poll on startup');
   isPolling = true;
   try {
-    await performPoll(config, sessionManager);
+    await performPoll(config, sessionManager, client);
   } catch (err) {
     logError('Initial poll failed', {
       error: err?.message || String(err),
@@ -592,7 +597,7 @@ export async function startPollLoop(config) {
 
     // Mark as polling and perform the poll
     isPolling = true;
-    performPoll(config, sessionManager)
+    performPoll(config, sessionManager, client)
       .catch(err => {
         logError('Poll failed', {
           error: err?.message || String(err),

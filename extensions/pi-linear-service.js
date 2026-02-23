@@ -12,6 +12,7 @@ import {
 } from '../src/daemon-control.js';
 import { loadSettings, saveSettings } from '../src/settings.js';
 import { setQuietMode } from '../src/logger.js';
+import { createLinearClient } from '../src/linear-client.js';
 import {
   prepareIssueStart,
   setIssueState,
@@ -292,7 +293,8 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   if (projectName) {
     try {
       const apiKey = await getLinearApiKey();
-      const resolved = await resolveProjectRef(apiKey, projectName);
+      const client = createLinearClient(apiKey);
+      const resolved = await resolveProjectRef(client, projectName);
       projectId = resolved.id;
       upsertFlag(args, '--id', projectId);
       return { projectId, projectName: resolved.name };
@@ -311,7 +313,8 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   let apiKey = null;
   try {
     apiKey = await getLinearApiKey();
-    projects = await fetchProjects(apiKey);
+    const client = createLinearClient(apiKey);
+    projects = await fetchProjects(client);
   } catch (err) {
     // API key not available or API error - fall back to simple input
   }
@@ -358,7 +361,8 @@ async function collectProjectRefWithUI(pi, ctx, args) {
   // Try to resolve as project name if we have API key
   if (apiKey) {
     try {
-      const resolved = await resolveProjectRef(apiKey, input);
+      const client = createLinearClient(apiKey);
+      const resolved = await resolveProjectRef(client, input);
       upsertFlag(args, '--id', resolved.id);
       upsertFlag(args, '--name', resolved.name);
       return { projectId: resolved.id, projectName: resolved.name };
@@ -453,8 +457,9 @@ function registerLinearIssueTools(pi) {
     },
     async execute(_toolCallId, params) {
       const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
       const issue = ensureNonEmpty(params.issue, 'issue');
-      const prepared = await prepareIssueStart(apiKey, issue);
+      const prepared = await prepareIssueStart(client, issue);
 
       const desiredBranch = params.branch || prepared.branchName;
       if (!desiredBranch) {
@@ -471,10 +476,9 @@ function registerLinearIssueTools(pi) {
       );
 
       const updatedIssue = await setIssueState(
-        apiKey,
+        client,
         prepared.issue.id,
-        prepared.startedState.id,
-        'IssueStartEquivalent'
+        prepared.startedState.id
       );
 
       const compactTitle = String(updatedIssue.title || prepared.issue?.title || '').trim().toLowerCase();
@@ -508,9 +512,10 @@ function registerLinearIssueTools(pi) {
     },
     async execute(_toolCallId, params) {
       const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
       const issue = ensureNonEmpty(params.issue, 'issue');
       const body = ensureNonEmpty(params.body, 'body');
-      const result = await addIssueComment(apiKey, issue, body, params.parentCommentId);
+      const result = await addIssueComment(client, issue, body, params.parentCommentId);
 
       return toTextResult(
         `Added comment to issue ${result.issue.identifier}`,
@@ -541,9 +546,10 @@ function registerLinearIssueTools(pi) {
     },
     async execute(_toolCallId, params) {
       const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
       const issue = ensureNonEmpty(params.issue, 'issue');
 
-      const result = await updateIssue(apiKey, issue, {
+      const result = await updateIssue(client, issue, {
         title: params.title,
         description: params.description,
         priority: params.priority,
@@ -593,10 +599,11 @@ function registerLinearIssueTools(pi) {
     },
     async execute(_toolCallId, params) {
       const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
       const issue = ensureNonEmpty(params.issue, 'issue');
       const includeComments = params.includeComments !== false;
 
-      const issueData = await fetchIssueDetails(apiKey, issue, { includeComments });
+      const issueData = await fetchIssueDetails(client, issue, { includeComments });
       const markdown = formatIssueAsMarkdown(issueData, { includeComments });
 
       return {

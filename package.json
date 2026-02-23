@@ -27,7 +27,7 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "postinstall": "node bin/postinstall.js",
-    "test": "node test-package-manifest.js && node test-pi-install-smoke.js && node test-config-mode-validation.js && node test-linear-execute-query.js && node test-pi-rpc-client.js && node test-service-cli.js && node test-daemon-control.js && node test-extension-commands.js && node test-poller-scope.js && node test-rpc-repo-mapping.js && node test-settings-migration.js && node test-session-ownership.js && node test-session-command-template.js && node test-tmux-runner.js"
+    "test": "node test-package-manifest.js && node test-pi-install-smoke.js && node test-config-mode-validation.js && node test-linear-sdk.js && node test-pi-rpc-client.js && node test-service-cli.js && node test-daemon-control.js && node test-extension-commands.js && node test-poller-scope.js && node test-rpc-repo-mapping.js && node test-settings-migration.js && node test-session-ownership.js && node test-session-command-template.js && node test-tmux-runner.js"
   },
   "keywords": [
     "linear",
@@ -45,6 +45,7 @@
   "license": "MIT",
   "author": "",
   "dependencies": {
+    "@linear/sdk": "^75.0.0",
     "dotenv": "^16.4.5"
   }
 }

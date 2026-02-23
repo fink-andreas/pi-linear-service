@@ -1,217 +1,129 @@
 /**
- * Linear GraphQL API client
+ * Linear SDK API wrapper
+ *
+ * Provides high-level functions for interacting with Linear API via @linear/sdk.
+ * All functions receive a LinearClient instance as the first parameter.
  */
 
-import { error as logError, warn, info, debug } from './logger.js';
-import { measureTimeAsync } from './metrics.js';
-import pkg from '../package.json' with { type: 'json' };
+import { warn, info, debug } from './logger.js';
 
-const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
-const USER_AGENT = `${pkg.name}/${pkg.version}`;
+// ===== HELPERS =====
 
-function truncate(str, maxLen = 800) {
-  if (typeof str !== 'string') return str;
-  if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen) + '…(truncated)';
-}
-
-function truncateJson(value, maxLen = 800) {
-  try {
-    return truncate(JSON.stringify(value), maxLen);
-  } catch {
-    return '<unserializable-json>';
-  }
+/**
+ * Check if a value looks like a Linear UUID
+ */
+function isLinearId(value) {
+  return typeof value === 'string' && /^[0-9a-fA-F-]{16,}$/.test(value);
 }
 
 /**
- * Execute a GraphQL query against Linear API
- *
- * Notes:
- * - Logs HTTP failures and GraphQL `errors[]`
- * - Throws on failures so callers can decide whether to abort or continue
- *
- * @param {string} apiKey - Linear API key
- * @param {string} query - GraphQL query
- * @param {Object} variables - Query variables
- * @param {Object} options
- * @param {string} [options.operationName]
- * @param {number} [options.timeoutMs=15000]
- * @returns {Promise<Object>} Query response data
+ * Normalize issue lookup input
  */
-export async function executeQuery(apiKey, query, variables = {}, options = {}) {
-  const { operationName, timeoutMs = 15000 } = options;
-  const queryFirstLine = query?.split('\n')?.[0] || '<unknown-query>';
-  const requestContext = {
-    operationName: operationName || null,
-    queryFirstLine,
-    variables,
+function normalizeIssueLookupInput(issue) {
+  const value = String(issue || '').trim();
+  if (!value) throw new Error('Missing required issue identifier');
+  return value;
+}
+
+/**
+ * Transform SDK issue object to plain object for consumers
+ * Handles both SDK Issue objects and already-resolved plain objects
+ */
+async function transformIssue(sdkIssue) {
+  if (!sdkIssue) return null;
+
+  // Handle SDK issue with lazy-loaded relations
+  const [state, team, project, assignee] = await Promise.all([
+    sdkIssue.state?.catch?.(() => null) ?? sdkIssue.state,
+    sdkIssue.team?.catch?.(() => null) ?? sdkIssue.team,
+    sdkIssue.project?.catch?.(() => null) ?? sdkIssue.project,
+    sdkIssue.assignee?.catch?.(() => null) ?? sdkIssue.assignee,
+  ]);
+
+  return {
+    id: sdkIssue.id,
+    identifier: sdkIssue.identifier,
+    title: sdkIssue.title,
+    description: sdkIssue.description,
+    url: sdkIssue.url,
+    branchName: sdkIssue.branchName,
+    priority: sdkIssue.priority,
+    state: state ? { id: state.id, name: state.name, type: state.type } : null,
+    team: team ? { id: team.id, key: team.key, name: team.name } : null,
+    project: project ? { id: project.id, name: project.name } : null,
+    assignee: assignee ? { id: assignee.id, name: assignee.name, displayName: assignee.displayName } : null,
   };
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
-  try {
-    debug('Executing Linear GraphQL query', {
-      operationName,
-      queryFirstLine,
-      variables,
-    });
-
-    // Measure API latency and keep explicit failure details.
-    const fetchResult = await measureTimeAsync(async () => {
-      return await fetch(LINEAR_GRAPHQL_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: apiKey,
-          'Content-Type': 'application/json',
-          'User-Agent': USER_AGENT,
-        },
-        body: JSON.stringify({
-          query,
-          variables,
-          ...(operationName ? { operationName } : {}),
-        }),
-        signal: controller.signal,
-      });
-    });
-
-    const fetchDuration = fetchResult.duration;
-
-    if (!fetchResult.success) {
-      const fetchError = fetchResult.error;
-
-      if (fetchError?.name === 'AbortError') {
-        logError('Linear API request timed out', {
-          operationName,
-          timeoutMs,
-          durationMs: fetchDuration,
-          request: requestContext,
-        });
-        throw new Error(
-          `Linear API request timed out after ${timeoutMs}ms; request=${truncateJson(requestContext, 1500)}`
-        );
-      }
-
-      logError('Linear API request failed before receiving response', {
-        operationName,
-        durationMs: fetchDuration,
-        error: fetchError?.message || String(fetchError),
-        request: requestContext,
-      });
-      throw new Error(
-        `Linear API request failed: ${fetchError?.message || String(fetchError)}; request=${truncateJson(requestContext, 1500)}`
-      );
-    }
-
-    const response = fetchResult.result;
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '<failed to read response body>');
-      const responseSnippet = truncate(errorText, 1500);
-      logError('Linear API request failed', {
-        operationName,
-        status: response.status,
-        statusText: response.statusText,
-        responseBodySnippet: responseSnippet,
-        durationMs: fetchDuration,
-        request: requestContext,
-      });
-      throw new Error(
-        `Linear API HTTP error: ${response.status} ${response.statusText}; request=${truncateJson(requestContext, 1500)}; response=${responseSnippet}`
-      );
-    }
-
-    let result;
-    try {
-      result = await response.json();
-    } catch (e) {
-      const raw = await response.text().catch(() => '<failed to read response body>');
-      const responseSnippet = truncate(raw, 1500);
-      logError('Linear API returned non-JSON response', {
-        operationName,
-        responseBodySnippet: responseSnippet,
-        request: requestContext,
-      });
-      throw new Error(
-        `Linear API returned invalid JSON; request=${truncateJson(requestContext, 1500)}; response=${responseSnippet}`
-      );
-    }
-
-    if (result?.errors?.length) {
-      const normalizedErrors = result.errors.map((e) => ({
-        message: e.message,
-        path: e.path,
-        code: e.extensions?.code,
-        type: e.extensions?.type,
-      }));
-
-      logError('GraphQL query returned errors', {
-        operationName,
-        durationMs: fetchDuration,
-        errors: normalizedErrors,
-        request: requestContext,
-      });
-
-      const messages = result.errors.map((e) => e.message).join(', ');
-      throw new Error(
-        `Linear GraphQL error(s): ${messages}; request=${truncateJson(requestContext, 1500)}; errors=${truncateJson(normalizedErrors, 1500)}`
-      );
-    }
-
-    debug('Linear GraphQL query successful', {
-      operationName,
-      durationMs: fetchDuration,
-    });
-    return result.data;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 /**
- * Run a minimal smoke-test query against the Linear API.
- *
- * Definition of done for INN-159 requires a simple query and clean logging.
- *
- * @param {string} apiKey
- * @returns {Promise<{id: string, name?: string}>}
+ * Resolve state ID from state input (ID, name, or type)
  */
-export async function runSmokeQuery(apiKey) {
-  const query = `query SmokeTest {\n  viewer {\n    id\n    name\n  }\n}`;
-  const data = await executeQuery(apiKey, query, {}, { operationName: 'SmokeTest' });
-  return data.viewer;
+function resolveStateIdFromInput(states, stateInput) {
+  if (!stateInput) return null;
+  const target = String(stateInput).trim();
+  if (!target) return null;
+
+  const byId = states.find((s) => s.id === target);
+  if (byId) return byId.id;
+
+  const lower = target.toLowerCase();
+  const byName = states.find((s) => String(s.name || '').toLowerCase() === lower);
+  if (byName) return byName.id;
+
+  const byType = states.find((s) => String(s.type || '').toLowerCase() === lower);
+  if (byType) return byType.id;
+
+  throw new Error(`State not found in team workflow: ${target}`);
+}
+
+// ===== QUERY FUNCTIONS =====
+
+/**
+ * Fetch the current authenticated viewer
+ * @param {LinearClient} client - Linear SDK client
+ * @returns {Promise<{id: string, name: string}>}
+ */
+export async function fetchViewer(client) {
+  const viewer = await client.viewer;
+  return {
+    id: viewer.id,
+    name: viewer.name,
+    displayName: viewer.displayName,
+  };
 }
 
 /**
- * Fetch issues in specific states, optionally filtered by assignee.
- * @param {string} apiKey - Linear API key
+ * Fetch issues in specific states, optionally filtered by assignee
+ * @param {LinearClient} client - Linear SDK client
  * @param {string|null} assigneeId - Assignee ID to filter by (null = all assignees)
  * @param {Array<string>} openStates - List of state names to include
  * @param {number} limit - Maximum number of issues to fetch
- * @returns {Promise<Object>} Object with issues array, truncated flag
+ * @returns {Promise<{issues: Array, truncated: boolean}>}
  */
-export async function fetchIssues(apiKey, assigneeId, openStates, limit) {
-  const assignedQuery = `query FetchAssignedIssues($assigneeId: ID!, $stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      assignee: { id: { eq: $assigneeId } }\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      assignee {\n        id\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
+export async function fetchIssues(client, assigneeId, openStates, limit) {
+  const filter = {
+    state: { name: { in: openStates } },
+  };
 
-  const allAssigneesQuery = `query FetchOpenIssues($stateNames: [String!]!, $first: Int!) {\n  issues(\n    first: $first\n    filter: {\n      state: { name: { in: $stateNames } }\n    }\n  ) {\n    nodes {\n      id\n      title\n      state {\n        name\n      }\n      assignee {\n        id\n      }\n      project {\n        id\n        name\n      }\n    }\n    pageInfo {\n      hasNextPage\n    }\n  }\n}`;
+  if (assigneeId) {
+    filter.assignee = { id: { eq: assigneeId } };
+  }
 
-  const variables = assigneeId
-    ? { assigneeId, stateNames: openStates, first: limit }
-    : { stateNames: openStates, first: limit };
-
-  const data = await executeQuery(apiKey, assigneeId ? assignedQuery : allAssigneesQuery, variables, {
-    operationName: assigneeId ? 'FetchAssignedIssues' : 'FetchOpenIssues',
+  const result = await client.issues({
+    first: limit,
+    filter,
   });
 
-  const nodes = data?.issues?.nodes ?? [];
-  const hasNextPage = Boolean(data?.issues?.pageInfo?.hasNextPage);
+  const nodes = result.nodes || [];
+  const hasNextPage = result.pageInfo?.hasNextPage ?? false;
+
+  // Transform SDK issues to plain objects
+  const issues = await Promise.all(nodes.map(transformIssue));
 
   // DEBUG: Log issues delivered by Linear API
   debug('Issues delivered by Linear API', {
-    issueCount: nodes.length,
-    issues: nodes.map(issue => ({
+    issueCount: issues.length,
+    issues: issues.map(issue => ({
       id: issue.id,
       title: issue.title,
       state: issue.state?.name,
@@ -231,22 +143,425 @@ export async function fetchIssues(apiKey, assigneeId, openStates, limit) {
   }
 
   return {
-    issues: nodes,
+    issues,
     truncated,
   };
 }
 
 /**
- * Backward-compatible wrapper for assignee-only issue queries.
+ * Fetch all accessible projects from Linear API
+ * @param {LinearClient} client - Linear SDK client
+ * @returns {Promise<Array<{id: string, name: string}>>}
  */
-export async function fetchAssignedIssues(apiKey, assigneeId, openStates, limit) {
-  return fetchIssues(apiKey, assigneeId, openStates, limit);
+export async function fetchProjects(client) {
+  const result = await client.projects();
+  const nodes = result.nodes ?? [];
+
+  debug('Fetched Linear projects', {
+    projectCount: nodes.length,
+    projects: nodes.map((p) => ({ id: p.id, name: p.name })),
+  });
+
+  return nodes.map(p => ({ id: p.id, name: p.name }));
 }
 
 /**
+ * Resolve an issue by ID or identifier
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier (ABC-123) or Linear issue ID
+ * @returns {Promise<Object>} Resolved issue object
+ */
+export async function resolveIssue(client, issueRef) {
+  const lookup = normalizeIssueLookupInput(issueRef);
+
+  // Try direct ID lookup first (for UUIDs)
+  if (isLinearId(lookup)) {
+    try {
+      const issue = await client.issue(lookup);
+      if (issue) {
+        return transformIssue(issue);
+      }
+    } catch {
+      // Fall through to identifier lookup
+    }
+  }
+
+  // Try identifier lookup (ABC-123)
+  try {
+    const result = await client.issues({
+      filter: { identifier: { eq: lookup } },
+      first: 1,
+    });
+
+    if (result.nodes?.[0]) {
+      return transformIssue(result.nodes[0]);
+    }
+  } catch {
+    // Fall through to error
+  }
+
+  throw new Error(`Issue not found: ${lookup}`);
+}
+
+/**
+ * Get workflow states for a team
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} teamRef - Team ID or key
+ * @returns {Promise<Array<{id: string, name: string, type: string}>>}
+ */
+export async function getTeamWorkflowStates(client, teamRef) {
+  const team = await client.team(teamRef);
+  if (!team) {
+    throw new Error(`Team not found: ${teamRef}`);
+  }
+
+  const states = await team.states();
+  return (states.nodes || []).map(s => ({
+    id: s.id,
+    name: s.name,
+    type: s.type,
+  }));
+}
+
+/**
+ * Resolve a project reference (name or ID) to a project object
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} projectRef - Project name or ID
+ * @returns {Promise<{id: string, name: string}>}
+ */
+export async function resolveProjectRef(client, projectRef) {
+  const ref = String(projectRef || '').trim();
+  if (!ref) {
+    throw new Error('Missing project reference');
+  }
+
+  const projects = await fetchProjects(client);
+
+  // If it looks like a Linear ID (UUID), try direct lookup first
+  if (isLinearId(ref)) {
+    const byId = projects.find((p) => p.id === ref);
+    if (byId) {
+      return byId;
+    }
+    throw new Error(`Project not found with ID: ${ref}`);
+  }
+
+  // Try exact name match
+  const exactName = projects.find((p) => p.name === ref);
+  if (exactName) {
+    return exactName;
+  }
+
+  // Try case-insensitive name match
+  const lowerRef = ref.toLowerCase();
+  const insensitiveName = projects.find((p) => p.name?.toLowerCase() === lowerRef);
+  if (insensitiveName) {
+    return insensitiveName;
+  }
+
+  throw new Error(`Project not found: ${ref}. Available projects: ${projects.map((p) => p.name).join(', ')}`);
+}
+
+/**
+ * Fetch detailed issue information including comments, parent, children, and attachments
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier (ABC-123) or Linear issue ID
+ * @param {Object} options
+ * @param {boolean} [options.includeComments=true] - Include comments in response
+ * @returns {Promise<Object>} Issue details
+ */
+export async function fetchIssueDetails(client, issueRef, options = {}) {
+  const { includeComments = true } = options;
+
+  // Resolve issue first
+  const lookup = normalizeIssueLookupInput(issueRef);
+
+  let sdkIssue;
+  if (isLinearId(lookup)) {
+    sdkIssue = await client.issue(lookup);
+  }
+
+  if (!sdkIssue) {
+    const result = await client.issues({
+      filter: { identifier: { eq: lookup } },
+      first: 1,
+    });
+    sdkIssue = result.nodes?.[0];
+  }
+
+  if (!sdkIssue) {
+    throw new Error(`Issue not found: ${lookup}`);
+  }
+
+  // Fetch all nested relations in parallel
+  const [
+    state,
+    team,
+    project,
+    assignee,
+    creator,
+    labelsResult,
+    parent,
+    childrenResult,
+    commentsResult,
+    attachmentsResult,
+  ] = await Promise.all([
+    sdkIssue.state?.catch?.(() => null) ?? sdkIssue.state,
+    sdkIssue.team?.catch?.(() => null) ?? sdkIssue.team,
+    sdkIssue.project?.catch?.(() => null) ?? sdkIssue.project,
+    sdkIssue.assignee?.catch?.(() => null) ?? sdkIssue.assignee,
+    sdkIssue.creator?.catch?.(() => null) ?? sdkIssue.creator,
+    sdkIssue.labels?.()?.catch?.(() => ({ nodes: [] })) ?? sdkIssue.labels?.() ?? { nodes: [] },
+    sdkIssue.parent?.catch?.(() => null) ?? sdkIssue.parent,
+    sdkIssue.children?.()?.catch?.(() => ({ nodes: [] })) ?? sdkIssue.children?.() ?? { nodes: [] },
+    includeComments ? (sdkIssue.comments?.()?.catch?.(() => ({ nodes: [] })) ?? sdkIssue.comments?.() ?? { nodes: [] }) : Promise.resolve({ nodes: [] }),
+    sdkIssue.attachments?.()?.catch?.(() => ({ nodes: [] })) ?? sdkIssue.attachments?.() ?? { nodes: [] },
+  ]);
+
+  // Transform parent if exists
+  let transformedParent = null;
+  if (parent) {
+    const parentState = await parent.state?.catch?.(() => null) ?? parent.state;
+    transformedParent = {
+      identifier: parent.identifier,
+      title: parent.title,
+      state: parentState ? { name: parentState.name, color: parentState.color } : null,
+    };
+  }
+
+  // Transform children
+  const children = (childrenResult.nodes || []).map(c => ({
+    identifier: c.identifier,
+    title: c.title,
+    state: c.state ? { name: c.state.name, color: c.state.color } : null,
+  }));
+
+  // Transform comments
+  const comments = (commentsResult.nodes || []).map(c => ({
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    user: c.user ? { name: c.user.name, displayName: c.user.displayName } : null,
+    externalUser: c.externalUser ? { name: c.externalUser.name, displayName: c.externalUser.displayName } : null,
+    parent: c.parent ? { id: c.parent.id } : null,
+  }));
+
+  // Transform attachments
+  const attachments = (attachmentsResult.nodes || []).map(a => ({
+    id: a.id,
+    title: a.title,
+    url: a.url,
+    subtitle: a.subtitle,
+    sourceType: a.sourceType,
+    createdAt: a.createdAt,
+  }));
+
+  // Transform labels
+  const labels = (labelsResult.nodes || []).map(l => ({
+    id: l.id,
+    name: l.name,
+    color: l.color,
+  }));
+
+  return {
+    identifier: sdkIssue.identifier,
+    title: sdkIssue.title,
+    description: sdkIssue.description,
+    url: sdkIssue.url,
+    branchName: sdkIssue.branchName,
+    priority: sdkIssue.priority,
+    estimate: sdkIssue.estimate,
+    createdAt: sdkIssue.createdAt,
+    updatedAt: sdkIssue.updatedAt,
+    state: state ? { name: state.name, color: state.color, type: state.type } : null,
+    team: team ? { id: team.id, key: team.key, name: team.name } : null,
+    project: project ? { id: project.id, name: project.name } : null,
+    assignee: assignee ? { id: assignee.id, name: assignee.name, displayName: assignee.displayName } : null,
+    creator: creator ? { id: creator.id, name: creator.name, displayName: creator.displayName } : null,
+    labels,
+    parent: transformedParent,
+    children,
+    comments,
+    attachments,
+  };
+}
+
+// ===== MUTATION FUNCTIONS =====
+
+/**
+ * Set issue state
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueId - Issue ID (UUID)
+ * @param {string} stateId - Target state ID
+ * @returns {Promise<Object>} Updated issue
+ */
+export async function setIssueState(client, issueId, stateId) {
+  const issue = await client.issue(issueId);
+  if (!issue) {
+    throw new Error(`Issue not found: ${issueId}`);
+  }
+
+  const result = await issue.update({ stateId });
+  if (!result.success) {
+    throw new Error('Failed to update issue state');
+  }
+
+  return transformIssue(result.issue);
+}
+
+/**
+ * Add a comment to an issue
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier or ID
+ * @param {string} body - Comment body
+ * @param {string} [parentCommentId] - Parent comment ID for replies
+ * @returns {Promise<{issue: Object, comment: Object}>}
+ */
+export async function addIssueComment(client, issueRef, body, parentCommentId) {
+  const commentBody = String(body || '').trim();
+  if (!commentBody) {
+    throw new Error('Missing required comment body');
+  }
+
+  const targetIssue = await resolveIssue(client, issueRef);
+
+  const input = {
+    issueId: targetIssue.id,
+    body: commentBody,
+  };
+
+  if (parentCommentId) {
+    input.parentId = parentCommentId;
+  }
+
+  const result = await client.createComment(input);
+
+  if (!result.success) {
+    throw new Error('Failed to create comment');
+  }
+
+  return {
+    issue: targetIssue,
+    comment: result.comment,
+  };
+}
+
+/**
+ * Update an issue
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier or ID
+ * @param {Object} patch - Fields to update
+ * @returns {Promise<{issue: Object, changed: Array<string>}>}
+ */
+export async function updateIssue(client, issueRef, patch = {}) {
+  const targetIssue = await resolveIssue(client, issueRef);
+  const updateInput = {};
+
+  if (patch.title !== undefined) {
+    updateInput.title = String(patch.title);
+  }
+
+  if (patch.description !== undefined) {
+    updateInput.description = String(patch.description);
+  }
+
+  if (patch.priority !== undefined) {
+    const parsed = Number.parseInt(String(patch.priority), 10);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 4) {
+      throw new Error(`Invalid priority: ${patch.priority}. Valid range: 0..4`);
+    }
+    updateInput.priority = parsed;
+  }
+
+  if (patch.state !== undefined) {
+    // Need to resolve state ID from team's workflow states
+    const team = targetIssue.team;
+    if (!team?.id) {
+      throw new Error(`Issue ${targetIssue.identifier} has no team assigned`);
+    }
+
+    const states = await getTeamWorkflowStates(client, team.id);
+    updateInput.stateId = resolveStateIdFromInput(states, patch.state);
+  }
+
+  if (Object.keys(updateInput).length === 0) {
+    throw new Error('No update fields provided');
+  }
+
+  // Get fresh issue instance for update
+  const sdkIssue = await client.issue(targetIssue.id);
+  if (!sdkIssue) {
+    throw new Error(`Issue not found: ${targetIssue.id}`);
+  }
+
+  const result = await sdkIssue.update(updateInput);
+  if (!result.success) {
+    throw new Error('Failed to update issue');
+  }
+
+  const updatedIssue = await transformIssue(result.issue);
+
+  return {
+    issue: updatedIssue,
+    changed: Object.keys(updateInput),
+  };
+}
+
+/**
+ * Prepare issue for starting (get started state)
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier or ID
+ * @returns {Promise<{issue: Object, startedState: Object, branchName: string|null}>}
+ */
+export async function prepareIssueStart(client, issueRef) {
+  const targetIssue = await resolveIssue(client, issueRef);
+
+  const teamRef = targetIssue.team?.key || targetIssue.team?.id;
+  if (!teamRef) {
+    throw new Error(`Issue ${targetIssue.identifier} has no team assigned`);
+  }
+
+  const states = await getTeamWorkflowStates(client, teamRef);
+
+  // Find a "started" type state, or "In Progress" by name
+  const started = states.find((s) => s.type === 'started')
+    || states.find((s) => String(s.name || '').toLowerCase() === 'in progress');
+
+  if (!started?.id) {
+    throw new Error(`Could not resolve a started workflow state for team ${teamRef}`);
+  }
+
+  return {
+    issue: targetIssue,
+    startedState: started,
+    branchName: targetIssue.branchName || null,
+  };
+}
+
+/**
+ * Start an issue (set to "In Progress" state)
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier or ID
+ * @returns {Promise<{issue: Object, startedState: Object, branchName: string|null}>}
+ */
+export async function startIssue(client, issueRef) {
+  const prepared = await prepareIssueStart(client, issueRef);
+  const updated = await setIssueState(client, prepared.issue.id, prepared.startedState.id);
+
+  return {
+    issue: updated,
+    startedState: prepared.startedState,
+    branchName: prepared.branchName,
+  };
+}
+
+// ===== PURE HELPER FUNCTIONS (unchanged) =====
+
+/**
  * Group issues by project
- * @param {Array<Object>} issues - Array of issues from Linear API
- * @returns {Object} Map of projectId -> { projectName, issueCount }
+ * @param {Array<Object>} issues - Array of issues
+ * @returns {Map<string, {projectName: string, issueCount: number, issues: Array}>}
  */
 export function groupIssuesByProject(issues) {
   const map = new Map();
@@ -286,512 +601,6 @@ export function groupIssuesByProject(issues) {
   });
 
   return map;
-}
-
-function isLinearId(value) {
-  return typeof value === 'string' && /^[0-9a-fA-F-]{16,}$/.test(value);
-}
-
-function normalizeIssueLookupInput(issue) {
-  const value = String(issue || '').trim();
-  if (!value) throw new Error('Missing required issue identifier');
-  return value;
-}
-
-async function queryIssueByIdentifier(apiKey, identifier) {
-  const query = `query IssueByIdentifier($identifier: String!) {
-    issues(first: 1, filter: { identifier: { eq: $identifier } }) {
-      nodes {
-        id
-        identifier
-        title
-        branchName
-        team {
-          id
-          key
-        }
-        state {
-          id
-          name
-          type
-        }
-      }
-    }
-  }`;
-
-  const data = await executeQuery(apiKey, query, { identifier }, { operationName: 'IssueByIdentifier' });
-  return data?.issues?.nodes?.[0] || null;
-}
-
-async function queryIssueById(apiKey, id) {
-  const query = `query IssueById($id: String!) {
-    issue(id: $id) {
-      id
-      identifier
-      title
-      branchName
-      team {
-        id
-        key
-      }
-      state {
-        id
-        name
-        type
-      }
-    }
-  }`;
-
-  const data = await executeQuery(apiKey, query, { id }, { operationName: 'IssueById' });
-  return data?.issue || null;
-}
-
-export async function resolveIssue(apiKey, issue) {
-  const lookup = normalizeIssueLookupInput(issue);
-
-  const byIdLike = await queryIssueById(apiKey, lookup).catch(() => null);
-  if (byIdLike) return byIdLike;
-
-  if (isLinearId(lookup)) {
-    throw new Error(`Issue not found: ${lookup}`);
-  }
-
-  const byIdentifier = await queryIssueByIdentifier(apiKey, lookup).catch(() => null);
-  if (byIdentifier) return byIdentifier;
-
-  throw new Error(`Issue not found: ${lookup}`);
-}
-
-export async function getTeamWorkflowStates(apiKey, teamRef) {
-  const query = `query TeamWorkflowStates($teamId: String!) {
-    team(id: $teamId) {
-      states {
-        nodes {
-          id
-          name
-          type
-        }
-      }
-    }
-  }`;
-
-  const data = await executeQuery(apiKey, query, { teamId: teamRef }, { operationName: 'TeamWorkflowStates' });
-  return data?.team?.states?.nodes || [];
-}
-
-function resolveStateIdFromInput(states, stateInput) {
-  if (!stateInput) return null;
-  const target = String(stateInput).trim();
-  if (!target) return null;
-
-  const byId = states.find((s) => s.id === target);
-  if (byId) return byId.id;
-
-  const lower = target.toLowerCase();
-  const byName = states.find((s) => String(s.name || '').toLowerCase() === lower);
-  if (byName) return byName.id;
-
-  const byType = states.find((s) => String(s.type || '').toLowerCase() === lower);
-  if (byType) return byType.id;
-
-  throw new Error(`State not found in team workflow: ${target}`);
-}
-
-async function issueUpdateMutation(apiKey, issueId, input, _operationName = 'IssueUpdate') {
-  const mutation = `mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
-    issueUpdate(id: $id, input: $input) {
-      success
-      issue {
-        id
-        identifier
-        title
-        priority
-        state {
-          id
-          name
-          type
-        }
-      }
-    }
-  }`;
-
-  const data = await executeQuery(apiKey, mutation, { id: issueId, input }, { operationName: 'IssueUpdate' });
-  const result = data?.issueUpdate;
-  if (!result?.success) {
-    throw new Error('Linear issueUpdate returned success=false');
-  }
-  return result.issue;
-}
-
-export async function prepareIssueStart(apiKey, issue) {
-  const targetIssue = await resolveIssue(apiKey, issue);
-  const teamRef = targetIssue?.team?.key || targetIssue?.team?.id;
-  if (!teamRef) {
-    throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
-  }
-
-  const states = await getTeamWorkflowStates(apiKey, teamRef);
-  const started = states.find((s) => s.type === 'started')
-    || states.find((s) => String(s.name || '').toLowerCase() === 'in progress');
-
-  if (!started?.id) {
-    throw new Error(`Could not resolve a started workflow state for team ${teamRef}`);
-  }
-
-  return {
-    issue: targetIssue,
-    startedState: started,
-    branchName: targetIssue.branchName || null,
-  };
-}
-
-export async function setIssueState(apiKey, issueId, stateId, operationName = 'IssueSetState') {
-  return issueUpdateMutation(apiKey, issueId, { stateId }, operationName);
-}
-
-export async function startIssue(apiKey, issue) {
-  const prepared = await prepareIssueStart(apiKey, issue);
-  const updated = await setIssueState(apiKey, prepared.issue.id, prepared.startedState.id, 'IssueStartEquivalent');
-  return {
-    issue: updated,
-    startedState: prepared.startedState,
-    branchName: prepared.branchName,
-  };
-}
-
-export async function addIssueComment(apiKey, issue, body, parentCommentId = undefined) {
-  const commentBody = String(body || '').trim();
-  if (!commentBody) {
-    throw new Error('Missing required comment body');
-  }
-
-  const targetIssue = await resolveIssue(apiKey, issue);
-  const mutation = `mutation CommentCreate($input: CommentCreateInput!) {
-    commentCreate(input: $input) {
-      success
-      comment {
-        id
-        body
-        issue {
-          id
-          identifier
-        }
-      }
-    }
-  }`;
-
-  const input = {
-    issueId: targetIssue.id,
-    body: commentBody,
-    ...(parentCommentId ? { parentId: parentCommentId } : {}),
-  };
-
-  const data = await executeQuery(apiKey, mutation, { input }, { operationName: 'CommentCreate' });
-  const result = data?.commentCreate;
-  if (!result?.success) {
-    throw new Error('Linear commentCreate returned success=false');
-  }
-
-  return {
-    issue: targetIssue,
-    comment: result.comment,
-  };
-}
-
-/**
- * Fetch all accessible projects from Linear API
- * @param {string} apiKey - Linear API key
- * @returns {Promise<Array<{id: string, name: string}>>}
- */
-export async function fetchProjects(apiKey) {
-  const query = `query Projects {
-    projects(first: 50) {
-      nodes {
-        id
-        name
-      }
-    }
-  }`;
-
-  const data = await executeQuery(apiKey, query, {}, { operationName: 'Projects' });
-  const nodes = data?.projects?.nodes ?? [];
-
-  debug('Fetched Linear projects', {
-    projectCount: nodes.length,
-    projects: nodes.map((p) => ({ id: p.id, name: p.name })),
-  });
-
-  return nodes;
-}
-
-/**
- * Resolve a project reference (name or ID) to a project ID
- * @param {string} apiKey - Linear API key
- * @param {string} projectRef - Project name or ID
- * @returns {Promise<{id: string, name: string}>}
- */
-export async function resolveProjectRef(apiKey, projectRef) {
-  const ref = String(projectRef || '').trim();
-  if (!ref) {
-    throw new Error('Missing project reference');
-  }
-
-  // If it looks like a Linear ID (UUID), try direct lookup first
-  if (isLinearId(ref)) {
-    const projects = await fetchProjects(apiKey);
-    const byId = projects.find((p) => p.id === ref);
-    if (byId) {
-      return { id: byId.id, name: byId.name };
-    }
-    throw new Error(`Project not found with ID: ${ref}`);
-  }
-
-  // Otherwise, search by name
-  const projects = await fetchProjects(apiKey);
-
-  // Try exact name match
-  const exactName = projects.find((p) => p.name === ref);
-  if (exactName) {
-    return { id: exactName.id, name: exactName.name };
-  }
-
-  // Try case-insensitive name match
-  const lowerRef = ref.toLowerCase();
-  const insensitiveName = projects.find((p) => p.name?.toLowerCase() === lowerRef);
-  if (insensitiveName) {
-    return { id: insensitiveName.id, name: insensitiveName.name };
-  }
-
-  throw new Error(`Project not found: ${ref}. Available projects: ${projects.map((p) => p.name).join(', ')}`);
-}
-
-export async function updateIssue(apiKey, issue, patch = {}) {
-  const targetIssue = await resolveIssue(apiKey, issue);
-  const nextPatch = {};
-
-  if (patch.title !== undefined) nextPatch.title = String(patch.title);
-  if (patch.description !== undefined) nextPatch.description = String(patch.description);
-  if (patch.priority !== undefined) {
-    const parsed = Number.parseInt(String(patch.priority), 10);
-    if (Number.isNaN(parsed) || parsed < 0 || parsed > 4) {
-      throw new Error(`Invalid priority: ${patch.priority}. Valid range: 0..4`);
-    }
-    nextPatch.priority = parsed;
-  }
-
-  if (patch.state !== undefined) {
-    const teamRef = targetIssue?.team?.key || targetIssue?.team?.id;
-    if (!teamRef) throw new Error(`Issue ${targetIssue.identifier || targetIssue.id} has no team assigned`);
-    const states = await getTeamWorkflowStates(apiKey, teamRef);
-    nextPatch.stateId = resolveStateIdFromInput(states, patch.state);
-  }
-
-  if (Object.keys(nextPatch).length === 0) {
-    throw new Error('No update fields provided');
-  }
-
-  const updated = await issueUpdateMutation(apiKey, targetIssue.id, nextPatch, 'IssueUpdateTool');
-  return {
-    issue: updated,
-    changed: Object.keys(nextPatch),
-  };
-}
-
-/**
- * Fetch detailed issue information including comments, parent, children, and attachments
- * @param {string} apiKey - Linear API key
- * @param {string} issue - Issue identifier (ABC-123) or Linear issue ID
- * @param {Object} options
- * @param {boolean} [options.includeComments=true] - Include comments in response
- * @returns {Promise<Object>} Issue details
- */
-export async function fetchIssueDetails(apiKey, issue, options = {}) {
-  const { includeComments = true } = options;
-  const targetIssue = await resolveIssue(apiKey, issue);
-  const issueId = targetIssue.id;
-
-  const queryWithComments = `query GetIssueDetailsWithComments($id: String!) {
-    issue(id: $id) {
-      identifier
-      title
-      description
-      url
-      branchName
-      priority
-      estimate
-      createdAt
-      updatedAt
-      state {
-        name
-        color
-        type
-      }
-      team {
-        id
-        key
-        name
-      }
-      project {
-        id
-        name
-      }
-      assignee {
-        id
-        name
-        displayName
-      }
-      creator {
-        id
-        name
-        displayName
-      }
-      labels {
-        nodes {
-          id
-          name
-          color
-        }
-      }
-      parent {
-        identifier
-        title
-        state {
-          name
-          color
-        }
-      }
-      children(first: 50) {
-        nodes {
-          identifier
-          title
-          state {
-            name
-            color
-          }
-        }
-      }
-      comments(first: 50, orderBy: createdAt) {
-        nodes {
-          id
-          body
-          createdAt
-          updatedAt
-          user {
-            name
-            displayName
-          }
-          externalUser {
-            name
-            displayName
-          }
-          parent {
-            id
-          }
-        }
-      }
-      attachments(first: 20) {
-        nodes {
-          id
-          title
-          url
-          subtitle
-          sourceType
-          createdAt
-        }
-      }
-    }
-  }`;
-
-  const queryWithoutComments = `query GetIssueDetails($id: String!) {
-    issue(id: $id) {
-      identifier
-      title
-      description
-      url
-      branchName
-      priority
-      estimate
-      createdAt
-      updatedAt
-      state {
-        name
-        color
-        type
-      }
-      team {
-        id
-        key
-        name
-      }
-      project {
-        id
-        name
-      }
-      assignee {
-        id
-        name
-        displayName
-      }
-      creator {
-        id
-        name
-        displayName
-      }
-      labels {
-        nodes {
-          id
-          name
-          color
-        }
-      }
-      parent {
-        identifier
-        title
-        state {
-          name
-          color
-        }
-      }
-      children(first: 50) {
-        nodes {
-          identifier
-          title
-          state {
-            name
-            color
-          }
-        }
-      }
-      attachments(first: 20) {
-        nodes {
-          id
-          title
-          url
-          subtitle
-          sourceType
-          createdAt
-        }
-      }
-    }
-  }`;
-
-  const query = includeComments ? queryWithComments : queryWithoutComments;
-  const data = await executeQuery(apiKey, query, { id: issueId }, {
-    operationName: includeComments ? 'GetIssueDetailsWithComments' : 'GetIssueDetails',
-  });
-
-  const issueData = data?.issue;
-  if (!issueData) {
-    throw new Error(`Issue not found: ${issueId}`);
-  }
-
-  return {
-    ...issueData,
-    children: issueData.children?.nodes || [],
-    comments: issueData.comments?.nodes || [],
-    attachments: issueData.attachments?.nodes || [],
-    labels: issueData.labels?.nodes || [],
-  };
 }
 
 /**

@@ -5,6 +5,17 @@
 1. **ALWAYS** ensure with "git status" if on main and in sync with origin
 2. **ALWAYS** use linear to start new issue and ensure correct git branch
 3. Verify you understand the requirements and architecture decisions (see PRD.md and TODO.md)
+
+## Running the Service
+
+**NEVER** run `node index.js` or `node index.js --help` without a timeout - the service runs forever as a daemon. Use:
+```bash
+timeout 5 node index.js --help 2>&1 || true
+```
+Or just check syntax/errors with:
+```bash
+node --check index.js
+```
 4. Follow the exact structure and guidelines outlined
 5. Implement according to specifications
 6. Respect the defined scope and non-goals

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import extension from './extensions/pi-linear-service.js';
 import { getSettingsPath } from './src/settings.js';
+import { setTestClientFactory, resetTestClientFactory } from './src/linear-client.js';
 
 function createMockPi(execImpl = null) {
   const commands = new Map();
@@ -41,6 +42,72 @@ async function withTempHome(fn) {
     await fn(tempHome);
   } finally {
     process.env.HOME = prevHome;
+  }
+}
+
+/**
+ * Create a mock Linear SDK client for testing
+ */
+function createMockSdkClient(overrides = {}) {
+  const mockIssue = (id) => ({
+    id,
+    identifier: `TEST-${id.slice(0, 4)}`,
+    title: `Test Issue ${id}`,
+    state: Promise.resolve({ id: 'state-1', name: 'Todo', type: 'unstarted' }),
+    team: Promise.resolve({ id: 'team-1', key: 'TEST', name: 'Test Team' }),
+    project: Promise.resolve(null),
+    assignee: Promise.resolve(null),
+    update: async (input) => ({
+      success: true,
+      issue: {
+        id,
+        identifier: `TEST-${id.slice(0, 4)}`,
+        title: input.title || `Test Issue ${id}`,
+        priority: input.priority,
+        state: Promise.resolve(input.stateId ? { id: input.stateId, name: 'Updated', type: 'started' } : { id: 'state-1', name: 'Todo', type: 'unstarted' }),
+        team: Promise.resolve({ id: 'team-1', key: 'TEST', name: 'Test Team' }),
+        project: Promise.resolve(null),
+        assignee: Promise.resolve(null),
+      },
+    }),
+  });
+
+  const base = {
+    viewer: Promise.resolve({ id: 'user-1', name: 'Test User', displayName: 'Test User' }),
+    issues: async () => ({ nodes: [], pageInfo: { hasNextPage: false } }),
+    issue: (id) => mockIssue(id),
+    projects: async () => ({ nodes: [] }),
+    team: (id) => Promise.resolve({
+      id,
+      key: 'TEST',
+      name: 'Test Team',
+      states: async () => ({
+        nodes: [
+          { id: 'state-1', name: 'Todo', type: 'unstarted' },
+          { id: 'state-2', name: 'In Progress', type: 'started' },
+          { id: 'state-3', name: 'Done', type: 'completed' },
+        ],
+      }),
+    }),
+    createComment: async (input) => ({
+      success: true,
+      comment: { id: 'comment-1', body: input.body },
+    }),
+    ...overrides,
+  };
+
+  return base;
+}
+
+/**
+ * Run a test with a mock Linear SDK client
+ */
+async function withMockClient(mockClient, fn) {
+  setTestClientFactory(() => mockClient);
+  try {
+    await fn();
+  } finally {
+    resetTestClientFactory();
   }
 }
 
@@ -293,50 +360,40 @@ async function testLinearIssueUpdateToolSuccess() {
 
     const tool = pi.tools.get('linear_issue_update');
 
-    await withMockFetch(async (_url, options = {}) => {
-      const payload = JSON.parse(options.body || '{}');
-      const query = payload.query || '';
+    const issueObj = {
+      id: 'issue-1',
+      identifier: 'ABC-123',
+      title: 'Before',
+      state: Promise.resolve({ id: 'state-1', name: 'Todo', type: 'unstarted' }),
+      team: Promise.resolve({ id: 'team-1', key: 'ABC', name: 'Team ABC' }),
+      project: Promise.resolve(null),
+      assignee: Promise.resolve(null),
+      update: async (input) => ({
+        success: true,
+        issue: {
+          id: 'issue-1',
+          identifier: 'ABC-123',
+          title: input.title || 'Before',
+          priority: input.priority,
+          state: Promise.resolve({ id: 'state-1', name: 'Todo', type: 'unstarted' }),
+          team: Promise.resolve({ id: 'team-1', key: 'ABC', name: 'Team ABC' }),
+          project: Promise.resolve(null),
+          assignee: Promise.resolve(null),
+        },
+      }),
+    };
 
-      if (query.includes('query IssueById')) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              issue: {
-                id: 'issue-1',
-                identifier: 'ABC-123',
-                title: 'Before',
-                branchName: 'feature/abc-123-before',
-                team: { id: 'team-1', key: 'ABC' },
-                state: { id: 'state-1', name: 'Todo', type: 'unstarted' },
-              },
-            },
-          }),
-        };
-      }
+    const mockClient = createMockSdkClient({
+      issues: async (options) => {
+        if (options?.filter?.identifier?.eq === 'ABC-123') {
+          return { nodes: [issueObj], pageInfo: { hasNextPage: false } };
+        }
+        return { nodes: [], pageInfo: { hasNextPage: false } };
+      },
+      issue: (id) => issueObj,
+    });
 
-      if (query.includes('mutation IssueUpdate')) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              issueUpdate: {
-                success: true,
-                issue: {
-                  id: 'issue-1',
-                  identifier: 'ABC-123',
-                  title: 'After',
-                  priority: 2,
-                  state: { id: 'state-1', name: 'Todo', type: 'unstarted' },
-                },
-              },
-            },
-          }),
-        };
-      }
-
-      throw new Error(`Unexpected query in test: ${query}`);
-    }, async () => {
+    await withMockClient(mockClient, async () => {
       const result = await tool.execute('call-2', {
         issue: 'ABC-123',
         title: 'After',
@@ -376,68 +433,52 @@ async function testLinearIssueStartToolGitFlow() {
   const tool = pi.tools.get('linear_issue_start');
 
   try {
-    await withMockFetch(async (_url, options = {}) => {
-      const payload = JSON.parse(options.body || '{}');
-      const query = payload.query || '';
+    const issueObj = {
+      id: 'issue-2',
+      identifier: 'ABC-456',
+      title: 'Start me',
+      branchName: 'feature/abc-456-start-me',
+      state: Promise.resolve({ id: 'todo', name: 'Todo', type: 'unstarted' }),
+      team: Promise.resolve({ id: 'team-1', key: 'ABC', name: 'Team ABC' }),
+      project: Promise.resolve(null),
+      assignee: Promise.resolve(null),
+      update: async (input) => ({
+        success: true,
+        issue: {
+          id: 'issue-2',
+          identifier: 'ABC-456',
+          title: 'Start me',
+          priority: 0,
+          state: Promise.resolve({ id: 'prog', name: 'In Progress', type: 'started' }),
+          team: Promise.resolve({ id: 'team-1', key: 'ABC', name: 'Team ABC' }),
+          project: Promise.resolve(null),
+          assignee: Promise.resolve(null),
+        },
+      }),
+    };
 
-      if (query.includes('query IssueById')) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              issue: {
-                id: 'issue-2',
-                identifier: 'ABC-456',
-                title: 'Start me',
-                branchName: 'feature/abc-456-start-me',
-                team: { id: 'team-1', key: 'ABC' },
-                state: { id: 'todo', name: 'Todo', type: 'unstarted' },
-              },
-            },
-          }),
-        };
-      }
+    const mockClient = createMockSdkClient({
+      issues: async (options) => {
+        if (options?.filter?.identifier?.eq === 'ABC-456') {
+          return { nodes: [issueObj], pageInfo: { hasNextPage: false } };
+        }
+        return { nodes: [], pageInfo: { hasNextPage: false } };
+      },
+      issue: (id) => issueObj,
+      team: (id) => Promise.resolve({
+        id: 'team-1',
+        key: 'ABC',
+        name: 'Team ABC',
+        states: async () => ({
+          nodes: [
+            { id: 'todo', name: 'Todo', type: 'unstarted' },
+            { id: 'prog', name: 'In Progress', type: 'started' },
+          ],
+        }),
+      }),
+    });
 
-      if (query.includes('query TeamWorkflowStates')) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              team: {
-                states: {
-                  nodes: [
-                    { id: 'todo', name: 'Todo', type: 'unstarted' },
-                    { id: 'prog', name: 'In Progress', type: 'started' },
-                  ],
-                },
-              },
-            },
-          }),
-        };
-      }
-
-      if (query.includes('mutation IssueUpdate')) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: {
-              issueUpdate: {
-                success: true,
-                issue: {
-                  id: 'issue-2',
-                  identifier: 'ABC-456',
-                  title: 'Start me',
-                  priority: 0,
-                  state: { id: 'prog', name: 'In Progress', type: 'started' },
-                },
-              },
-            },
-          }),
-        };
-      }
-
-      throw new Error(`Unexpected query in test: ${query}`);
-    }, async () => {
+    await withMockClient(mockClient, async () => {
       const result = await tool.execute('call-3', { issue: 'ABC-456' });
       assert.equal(result.content[0].text, 'Started issue ABC-456 (start me)');
       assert.ok(gitCalls.some((args) => args.join(' ').includes('checkout -b feature/abc-456-start-me HEAD')));
