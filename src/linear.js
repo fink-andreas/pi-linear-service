@@ -232,29 +232,13 @@ export async function fetchProjects(client) {
 export async function resolveIssue(client, issueRef) {
   const lookup = normalizeIssueLookupInput(issueRef);
 
-  // Try direct ID lookup first (for UUIDs)
-  if (isLinearId(lookup)) {
-    try {
-      const issue = await client.issue(lookup);
-      if (issue) {
-        return transformIssue(issue);
-      }
-    } catch {
-      // Fall through to identifier lookup
-    }
-  }
-
-  // Try identifier lookup (ABC-123)
+  // The SDK's client.issue() method accepts both UUIDs and identifiers (ABC-123)
   try {
-    const result = await client.issues({
-      filter: { identifier: { eq: lookup } },
-      first: 1,
-    });
-
-    if (result.nodes?.[0]) {
-      return transformIssue(result.nodes[0]);
+    const issue = await client.issue(lookup);
+    if (issue) {
+      return transformIssue(issue);
     }
-  } catch {
+  } catch (err) {
     // Fall through to error
   }
 
@@ -331,21 +315,9 @@ export async function resolveProjectRef(client, projectRef) {
 export async function fetchIssueDetails(client, issueRef, options = {}) {
   const { includeComments = true } = options;
 
-  // Resolve issue first
+  // Resolve issue - client.issue() accepts both UUIDs and identifiers
   const lookup = normalizeIssueLookupInput(issueRef);
-
-  let sdkIssue;
-  if (isLinearId(lookup)) {
-    sdkIssue = await client.issue(lookup);
-  }
-
-  if (!sdkIssue) {
-    const result = await client.issues({
-      filter: { identifier: { eq: lookup } },
-      first: 1,
-    });
-    sdkIssue = result.nodes?.[0];
-  }
+  const sdkIssue = await client.issue(lookup);
 
   if (!sdkIssue) {
     throw new Error(`Issue not found: ${lookup}`);
