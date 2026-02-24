@@ -570,13 +570,19 @@ export async function createIssue(client, input) {
   // The create response includes the issue with basic fields
   const created = result.issue;
 
-  // Debug: log the full created object
-  console.error('[createIssue] Raw created object keys:', Object.keys(created || {}));
+  // Debug: log the full result and created object
+  console.error('[createIssue] result.success:', result.success);
+  console.error('[createIssue] result keys:', Object.keys(result));
+  console.error('[createIssue] result.issue keys:', created ? Object.keys(created) : 'null');
   console.error('[createIssue] created.id:', created?.id);
   console.error('[createIssue] created.identifier:', created?.identifier);
+  console.error('[createIssue] created.title:', created?.title);
 
   // Try to fetch the full issue to get computed fields like identifier
   try {
+    if (!created?.id) {
+      throw new Error('created.id is missing');
+    }
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
       console.error('[createIssue] Full issue fetched, identifier:', fullIssue.identifier);
