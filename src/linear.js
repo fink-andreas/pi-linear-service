@@ -916,7 +916,7 @@ export async function createProjectMilestone(client, input) {
   }
 
   if (input.status !== undefined) {
-    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'];
+    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'done', 'cancelled'];
     const status = String(input.status);
     if (!validStatuses.includes(status)) {
       throw new Error(`Invalid status: ${status}. Valid values: ${validStatuses.join(', ')}`);
@@ -986,7 +986,7 @@ export async function updateProjectMilestone(client, milestoneId, patch = {}) {
   }
 
   if (patch.status !== undefined) {
-    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'];
+    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'done', 'cancelled'];
     const status = String(patch.status);
     if (!validStatuses.includes(status)) {
       throw new Error(`Invalid status: ${status}. Valid values: ${validStatuses.join(', ')}`);

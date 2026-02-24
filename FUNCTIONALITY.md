@@ -92,7 +92,7 @@ Actions: `list`, `view`, `create`, `update`
 - `create`: Create a new milestone (params: `project`, `name`, `description`, `targetDate`, `status`)
 - `update`: Update a milestone (params: `milestone`, `name`, `description`, `targetDate`, `status`)
 
-Milestone status values: `backlogged`, `planned`, `inProgress`, `paused`, `completed`, `cancelled`
+Milestone status values: `backlogged`, `planned`, `inProgress`, `paused`, `completed`, `done`, `cancelled`
 
 ### Tool behavior
 

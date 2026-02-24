@@ -995,6 +995,7 @@ async function executeMilestoneList(client, params) {
       inProgress: '🚀',
       paused: '⏸️',
       completed: '✅',
+      done: '✅',
       cancelled: '❌',
     }[milestone.status] || '📌';
 
@@ -1129,6 +1130,7 @@ async function executeMilestoneCreate(client, params) {
     inProgress: '🚀',
     paused: '⏸️',
     completed: '✅',
+    done: '✅',
     cancelled: '❌',
   }[milestone.status] || '📌';
 
@@ -1164,6 +1166,7 @@ async function executeMilestoneUpdate(client, params) {
     inProgress: '🚀',
     paused: '⏸️',
     completed: '✅',
+    done: '✅',
     cancelled: '❌',
   }[result.milestone.status] || '📌';
 
