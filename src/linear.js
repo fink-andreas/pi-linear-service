@@ -1011,6 +1011,45 @@ export async function updateProjectMilestone(client, milestoneId, patch = {}) {
   };
 }
 
+/**
+ * Delete a project milestone
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} milestoneId - Milestone ID
+ * @returns {Promise<{success: boolean, milestoneId: string}>}
+ */
+export async function deleteProjectMilestone(client, milestoneId) {
+  const result = await client.deleteProjectMilestone(milestoneId);
+
+  return {
+    success: result.success,
+    milestoneId,
+  };
+}
+
+/**
+ * Delete (archive) an issue
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} issueRef - Issue identifier or ID
+ * @returns {Promise<{success: boolean, issueId: string, identifier: string}>}
+ */
+export async function deleteIssue(client, issueRef) {
+  const targetIssue = await resolveIssue(client, issueRef);
+
+  // Get SDK issue instance for delete
+  const sdkIssue = await client.issue(targetIssue.id);
+  if (!sdkIssue) {
+    throw new Error(`Issue not found: ${targetIssue.id}`);
+  }
+
+  const result = await sdkIssue.delete();
+
+  return {
+    success: result.success,
+    issueId: targetIssue.id,
+    identifier: targetIssue.identifier,
+  };
+}
+
 // ===== PURE HELPER FUNCTIONS (unchanged) =====
 
 /**

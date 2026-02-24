@@ -68,7 +68,7 @@ The extension provides the following tools for LLM interaction with Linear:
 
 #### `linear_issue` Tool
 
-Actions: `list`, `view`, `create`, `update`, `comment`, `start`
+Actions: `list`, `view`, `create`, `update`, `comment`, `start`, `delete`
 
 - `list`: List issues in a project (params: `project`, `states`, `assignee`, `limit`)
 - `view`: View issue details with comments (params: `issue`, `includeComments`)
@@ -76,6 +76,7 @@ Actions: `list`, `view`, `create`, `update`, `comment`, `start`
 - `update`: Update an issue (params: `issue`, `title`, `description`, `priority`, `state`)
 - `comment`: Add a comment to an issue (params: `issue`, `body`, `parentCommentId`)
 - `start`: Start an issue with git branch (params: `issue`, `branch`, `fromRef`, `onBranchExists`)
+- `delete`: Delete (archive) an issue (params: `issue`)
 
 #### `linear_project` Tool
 
@@ -85,12 +86,13 @@ Actions: `list`
 
 #### `linear_milestone` Tool
 
-Actions: `list`, `view`, `create`, `update`
+Actions: `list`, `view`, `create`, `update`, `delete`
 
 - `list`: List milestones for a project (params: `project`)
 - `view`: View milestone details with associated issues (params: `milestone`)
 - `create`: Create a new milestone (params: `project`, `name`, `description`, `targetDate`, `status`)
 - `update`: Update a milestone (params: `milestone`, `name`, `description`, `targetDate`, `status`)
+- `delete`: Delete a milestone (params: `milestone`)
 
 Milestone status values: `backlogged`, `planned`, `inProgress`, `paused`, `completed`, `done`, `cancelled`
 

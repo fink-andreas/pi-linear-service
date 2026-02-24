@@ -31,6 +31,8 @@ import {
   fetchMilestoneDetails,
   createProjectMilestone,
   updateProjectMilestone,
+  deleteProjectMilestone,
+  deleteIssue,
 } from '../src/linear.js';
 
 // ===== ARGUMENT PARSING UTILITIES =====
@@ -443,19 +445,19 @@ function registerLinearTools(pi) {
   pi.registerTool({
     name: 'linear_issue',
     label: 'Linear Issue',
-    description: 'Interact with Linear issues. Actions: list, view, create, update, comment, start',
+    description: 'Interact with Linear issues. Actions: list, view, create, update, comment, start, delete',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'view', 'create', 'update', 'comment', 'start'],
+          enum: ['list', 'view', 'create', 'update', 'comment', 'start', 'delete'],
           description: 'Action to perform on the issue(s)',
         },
-        // Issue identification (for view, update, comment, start)
+        // Issue identification (for view, update, comment, start, delete)
         issue: {
           type: 'string',
-          description: 'Issue key (ABC-123) or Linear issue ID (for view, update, comment, start)',
+          description: 'Issue key (ABC-123) or Linear issue ID (for view, update, comment, start, delete)',
         },
         // List parameters
         project: {
@@ -561,6 +563,9 @@ function registerLinearTools(pi) {
         case 'start':
           return await executeIssueStart(client, pi, params);
 
+        case 'delete':
+          return await executeIssueDelete(client, params);
+
         default:
           throw new Error(`Unknown action: ${params.action}`);
       }
@@ -602,19 +607,19 @@ function registerLinearTools(pi) {
   pi.registerTool({
     name: 'linear_milestone',
     label: 'Linear Milestone',
-    description: 'Interact with Linear project milestones. Actions: list, view, create, update',
+    description: 'Interact with Linear project milestones. Actions: list, view, create, update, delete',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'view', 'create', 'update'],
+          enum: ['list', 'view', 'create', 'update', 'delete'],
           description: 'Action to perform on the milestone(s)',
         },
-        // Milestone identification (for view, update)
+        // Milestone identification (for view, update, delete)
         milestone: {
           type: 'string',
-          description: 'Milestone ID (for view, update)',
+          description: 'Milestone ID (for view, update, delete)',
         },
         // Project reference (for list, create)
         project: {
@@ -636,7 +641,7 @@ function registerLinearTools(pi) {
         },
         status: {
           type: 'string',
-          enum: ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'],
+          enum: ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'done', 'cancelled'],
           description: 'Milestone status',
         },
       },
@@ -659,6 +664,9 @@ function registerLinearTools(pi) {
 
         case 'update':
           return await executeMilestoneUpdate(client, params);
+
+        case 'delete':
+          return await executeMilestoneDelete(client, params);
 
         default:
           throw new Error(`Unknown action: ${params.action}`);
@@ -941,6 +949,20 @@ async function executeIssueStart(client, pi, params) {
   });
 }
 
+async function executeIssueDelete(client, params) {
+  const issue = ensureNonEmpty(params.issue, 'issue');
+  const result = await deleteIssue(client, issue);
+
+  return toTextResult(
+    `Deleted issue **${result.identifier}**`,
+    {
+      issueId: result.issueId,
+      identifier: result.identifier,
+      success: result.success,
+    }
+  );
+}
+
 async function executeProjectList(client) {
   const projects = await fetchProjects(client);
 
@@ -1177,6 +1199,19 @@ async function executeMilestoneUpdate(client, params) {
       name: result.milestone.name,
       status: result.milestone.status,
       changed: friendlyChanges,
+    }
+  );
+}
+
+async function executeMilestoneDelete(client, params) {
+  const milestoneId = ensureNonEmpty(params.milestone, 'milestone');
+  const result = await deleteProjectMilestone(client, milestoneId);
+
+  return toTextResult(
+    `Deleted milestone \`${milestoneId}\``,
+    {
+      milestoneId: result.milestoneId,
+      success: result.success,
     }
   );
 }
