@@ -570,30 +570,21 @@ export async function createIssue(client, input) {
   // The create response includes the issue with basic fields
   const created = result.issue;
 
-  // Debug: log what we got from create
-  console.error('[DEBUG createIssue] created:', JSON.stringify({
-    id: created?.id,
-    identifier: created?.identifier,
-    title: created?.title,
-    hasTeam: !!created?.team,
-    hasProject: !!created?.project,
-    hasState: !!created?.state,
-    hasAssignee: !!created?.assignee,
-  }));
-
   // Try to fetch the full issue to get computed fields like identifier
+  let fullIssueData = null;
   try {
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
-      console.error('[DEBUG createIssue] fullIssue fetched:', JSON.stringify({
+      fullIssueData = {
         id: fullIssue?.id,
         identifier: fullIssue?.identifier,
         title: fullIssue?.title,
-      }));
-      return transformIssue(fullIssue);
+      };
+      const transformed = await transformIssue(fullIssue);
+      return { ...transformed, _debug: { source: 'fullIssue', raw: fullIssueData } };
     }
   } catch (fetchErr) {
-    console.error('[DEBUG createIssue] fetch failed:', fetchErr.message);
+    fullIssueData = { error: fetchErr.message };
   }
 
   // Fallback: Build response from create result + input values
@@ -608,6 +599,13 @@ export async function createIssue(client, input) {
     team: null,
     project: null,
     assignee: null,
+    _debug: {
+      source: 'fallback',
+      createdId: created.id,
+      createdIdentifier: created.identifier,
+      createdTitle: created.title,
+      fullIssueData,
+    },
   };
 
   // Try to resolve relations (they may be promises)
