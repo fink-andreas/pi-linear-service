@@ -753,7 +753,7 @@ async function executeIssueCreate(client, params) {
 
   const issue = await createIssue(client, createInput);
 
-  const identifier = issue.identifier || issue.id;
+  const identifier = issue.identifier || issue.id || 'unknown';
   const projectLabel = issue.project?.name || 'No project';
   const priorityLabel = issue.priority !== undefined && issue.priority !== null
     ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
@@ -764,14 +764,8 @@ async function executeIssueCreate(client, params) {
   const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`, `State: ${stateLabel}`, `Assignee: ${assigneeLabel}`];
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
-  // Add debug info if identifier is missing
-  let debugLine = '';
-  if (!issue.identifier) {
-    debugLine = `\n[DEBUG id=${issue.id}]`;
-  }
-
   return toTextResult(
-    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}${debugLine}`,
+    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}`,
     {
       issueId: issue.id,
       identifier: issue.identifier,
