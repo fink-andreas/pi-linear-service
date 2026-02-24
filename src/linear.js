@@ -571,20 +571,13 @@ export async function createIssue(client, input) {
   const created = result.issue;
 
   // Try to fetch the full issue to get computed fields like identifier
-  let fullIssueData = null;
   try {
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
-      fullIssueData = {
-        id: fullIssue?.id,
-        identifier: fullIssue?.identifier,
-        title: fullIssue?.title,
-      };
-      const transformed = await transformIssue(fullIssue);
-      return { ...transformed, _debug: { source: 'fullIssue', raw: fullIssueData } };
+      return transformIssue(fullIssue);
     }
-  } catch (fetchErr) {
-    fullIssueData = { error: fetchErr.message };
+  } catch {
+    // Fetch failed, use fallback below
   }
 
   // Fallback: Build response from create result + input values
@@ -599,13 +592,6 @@ export async function createIssue(client, input) {
     team: null,
     project: null,
     assignee: null,
-    _debug: {
-      source: 'fallback',
-      createdId: created.id,
-      createdIdentifier: created.identifier,
-      createdTitle: created.title,
-      fullIssueData,
-    },
   };
 
   // Try to resolve relations (they may be promises)

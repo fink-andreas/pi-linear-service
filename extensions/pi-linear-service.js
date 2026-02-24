@@ -764,17 +764,8 @@ async function executeIssueCreate(client, params) {
   const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`, `State: ${stateLabel}`, `Assignee: ${assigneeLabel}`];
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
-  // Debug: show raw issue data
-  const debugParts = [];
-  if (issue._debug) {
-    debugParts.push(`\n\n[DEBUG] source: ${issue._debug.source}`);
-    if (issue._debug.createdId) debugParts.push(`createdId: ${issue._debug.createdId}`);
-    if (issue._debug.createdIdentifier !== undefined) debugParts.push(`createdIdentifier: ${issue._debug.createdIdentifier}`);
-    if (issue._debug.fullIssueData) debugParts.push(`fullIssue: ${JSON.stringify(issue._debug.fullIssueData)}`);
-  }
-
   return toTextResult(
-    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}${debugParts.join('\n')}`,
+    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}`,
     {
       issueId: issue.id,
       identifier: issue.identifier,
