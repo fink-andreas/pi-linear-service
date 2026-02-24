@@ -729,7 +729,7 @@ async function executeIssueCreate(client, params) {
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
   return toTextResult(
-    `Created issue **${identifier}**: ${issue.title}\n\n_${metaParts.join(' | ')}_`,
+    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}`,
     {
       issueId: issue.id,
       identifier: issue.identifier,

@@ -570,18 +570,30 @@ export async function createIssue(client, input) {
   // The create response includes the issue with basic fields
   const created = result.issue;
 
+  info('Issue created, attempting to fetch full issue', { issueId: created.id });
+
   // Try to fetch the full issue to get computed fields like identifier
-  // This may fail in some cases, so we have a fallback
   try {
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
+      info('Full issue fetched successfully', {
+        id: fullIssue.id,
+        identifier: fullIssue.identifier,
+        title: fullIssue.title,
+      });
       return transformIssue(fullIssue);
     }
   } catch (fetchErr) {
-    debug('Could not fetch full issue after creation', { error: fetchErr.message });
+    warn('Could not fetch full issue after creation', { error: fetchErr.message, issueId: created.id });
   }
 
   // Fallback: Build response from create result + input values
+  warn('Using fallback response from create result', {
+    createdId: created.id,
+    createdIdentifier: created.identifier,
+    createdTitle: created.title,
+  });
+
   const issueResponse = {
     id: created.id,
     identifier: created.identifier || null,
