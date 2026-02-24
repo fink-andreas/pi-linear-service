@@ -574,10 +574,12 @@ export async function createIssue(client, input) {
   try {
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
-      return transformIssue(fullIssue);
+      const transformed = await transformIssue(fullIssue);
+      return transformed;
     }
-  } catch {
-    // Fetch failed, use fallback below
+  } catch (err) {
+    // Log for debugging but continue with fallback
+    console.error('[createIssue] Failed to fetch full issue:', err.message);
   }
 
   // Fallback: Build response from create result + input values
@@ -593,6 +595,8 @@ export async function createIssue(client, input) {
     project: null,
     assignee: null,
   };
+
+  console.error('[createIssue] Using fallback, created.id:', created.id, 'identifier:', created.identifier);
 
   // Try to resolve relations (they may be promises)
   try {
@@ -622,6 +626,8 @@ export async function createIssue(client, input) {
       if (assigneeData) issueResponse.assignee = { id: assigneeData.id, name: assigneeData.name, displayName: assigneeData.displayName };
     }
   } catch { /* ignore */ }
+
+  console.error('[createIssue] Fallback response:', JSON.stringify({ identifier: issueResponse.identifier, state: issueResponse.state, assignee: issueResponse.assignee }));
 
   return issueResponse;
 }
