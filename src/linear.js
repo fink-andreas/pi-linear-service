@@ -570,10 +570,16 @@ export async function createIssue(client, input) {
   // The create response includes the issue with basic fields
   const created = result.issue;
 
+  // Debug: log the full created object
+  console.error('[createIssue] Raw created object keys:', Object.keys(created || {}));
+  console.error('[createIssue] created.id:', created?.id);
+  console.error('[createIssue] created.identifier:', created?.identifier);
+
   // Try to fetch the full issue to get computed fields like identifier
   try {
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
+      console.error('[createIssue] Full issue fetched, identifier:', fullIssue.identifier);
       const transformed = await transformIssue(fullIssue);
       return transformed;
     }
