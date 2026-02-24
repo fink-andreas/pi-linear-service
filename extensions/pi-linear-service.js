@@ -349,6 +349,26 @@ async function collectReconfigureArgsWithUI(pi, ctx, args) {
   return existing;
 }
 
+// ===== TEAM RESOLUTION =====
+
+/**
+ * Resolve default team from settings
+ * Lookup order: project team -> global defaultTeam -> null
+ * @param {string|null} projectId - Project ID to look up team for
+ * @returns {Promise<string|null>} Team key/name or null if not configured
+ */
+async function resolveDefaultTeam(projectId) {
+  const settings = await loadSettings();
+
+  // Check project-level team first
+  if (projectId && settings.projects?.[projectId]?.scope?.team) {
+    return settings.projects[projectId].scope.team;
+  }
+
+  // Fall back to global default
+  return settings.defaultTeam || null;
+}
+
 // ===== GIT OPERATIONS =====
 
 async function runGit(pi, args) {
@@ -476,7 +496,7 @@ function registerLinearTools(pi) {
         // Create-specific parameters
         team: {
           type: 'string',
-          description: 'Team key (e.g., "ENG") or name (required for create)',
+          description: 'Team key (e.g., "ENG") or name (optional if default team configured)',
         },
         parentId: {
           type: 'string',
@@ -661,7 +681,31 @@ async function executeIssueView(client, params) {
 
 async function executeIssueCreate(client, params) {
   const title = ensureNonEmpty(params.title, 'title');
-  const teamRef = ensureNonEmpty(params.team, 'team');
+
+  // Resolve project first (needed for team lookup)
+  let projectRef = params.project;
+  if (!projectRef) {
+    projectRef = process.cwd().split('/').pop();
+  }
+
+  let projectId = null;
+  let resolvedProject = null;
+  try {
+    resolvedProject = await resolveProjectRef(client, projectRef);
+    projectId = resolvedProject.id;
+  } catch (err) {
+    // Project not found - continue without project
+  }
+
+  // Resolve team: explicit param -> project setting -> global default -> error
+  let teamRef = params.team;
+  if (!teamRef) {
+    teamRef = await resolveDefaultTeam(projectId);
+  }
+
+  if (!teamRef) {
+    throw new Error('Missing required field: team. Set a default with /linear-daemon-config --default-team <team-key> or provide team parameter.');
+  }
 
   // Resolve team
   const team = await resolveTeamRef(client, teamRef);
@@ -702,17 +746,9 @@ async function executeIssueCreate(client, params) {
     }
   }
 
-  // Resolve project - default to current directory name if not specified
-  let projectRef = params.project;
-  if (!projectRef) {
-    projectRef = process.cwd().split('/').pop();
-  }
-
-  try {
-    const project = await resolveProjectRef(client, projectRef);
-    createInput.projectId = project.id;
-  } catch (err) {
-    // Project not found - continue without project
+  // Set project if resolved
+  if (resolvedProject) {
+    createInput.projectId = resolvedProject.id;
   }
 
   const issue = await createIssue(client, createInput);
@@ -973,11 +1009,15 @@ export default function piLinearServiceExtension(pi) {
   });
 
   pi.registerCommand('linear-daemon-config', {
-    description: 'Configure extension settings (e.g., LINEAR_API_KEY)',
+    description: 'Configure extension settings (API key, default team, etc.)',
     handler: async (argsText, ctx) => {
       const args = parseArgs(argsText);
       const apiKey = readFlag(args, '--api-key');
+      const defaultTeam = readFlag(args, '--default-team');
+      const projectTeam = readFlag(args, '--team');
+      const projectName = readFlag(args, '--project');
 
+      // Set API key
       if (apiKey) {
         const settings = await loadSettings();
         settings.linearApiKey = apiKey;
@@ -989,6 +1029,52 @@ export default function piLinearServiceExtension(pi) {
         return;
       }
 
+      // Set global default team
+      if (defaultTeam) {
+        const settings = await loadSettings();
+        settings.defaultTeam = defaultTeam;
+        await saveSettings(settings);
+        if (ctx?.hasUI) {
+          ctx.ui.notify(`Default team set to: ${defaultTeam}`, 'info');
+        }
+        return;
+      }
+
+      // Set project-level team
+      if (projectTeam && projectName) {
+        const settings = await loadSettings();
+
+        // Resolve project ID if we have API key
+        let projectId = projectName;
+        try {
+          const apiKey = await getLinearApiKey();
+          const client = createLinearClient(apiKey);
+          const resolved = await resolveProjectRef(client, projectName);
+          projectId = resolved.id;
+        } catch {
+          // Use projectName as-is (might be a project ID)
+        }
+
+        if (!settings.projects[projectId]) {
+          settings.projects[projectId] = {
+            enabled: false,
+            scope: {},
+            repo: {},
+            runtime: {},
+          };
+        }
+        if (!settings.projects[projectId].scope) {
+          settings.projects[projectId].scope = {};
+        }
+        settings.projects[projectId].scope.team = projectTeam;
+        await saveSettings(settings);
+        if (ctx?.hasUI) {
+          ctx.ui.notify(`Team for project "${projectName}" set to: ${projectTeam}`, 'info');
+        }
+        return;
+      }
+
+      // Show current config
       const settings = await loadSettings();
       const hasKey = !!(settings.linearApiKey || process.env.LINEAR_API_KEY);
       const keySource = process.env.LINEAR_API_KEY ? 'environment' : (settings.linearApiKey ? 'settings' : 'not set');
@@ -997,9 +1083,12 @@ export default function piLinearServiceExtension(pi) {
         customType: 'pi-linear-service',
         content: `Configuration:
   LINEAR_API_KEY: ${hasKey ? 'configured' : 'not set'} (source: ${keySource})
+  Default team: ${settings.defaultTeam || 'not set'}
 
-To set API key:
+Commands:
   /linear-daemon-config --api-key lin_xxx
+  /linear-daemon-config --default-team inno-cli
+  /linear-daemon-config --team inno-cli --project pi-linear-service
 
 Note: Environment variable takes precedence over settings file.`,
         display: true,

@@ -14,10 +14,12 @@ import { debug, warn, error as logError } from './logger.js';
  */
 export function getDefaultSettings() {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     mode: 'rpc',
     // API key can be stored here instead of environment variable
     linearApiKey: null,
+    // Global default team (fallback when project has no team configured)
+    defaultTeam: null,
     projects: {},
     rpc: {
       timeoutMs: 120000,
@@ -113,6 +115,14 @@ function migrateSettings(settings) {
     migrated.schemaVersion = 3;
   }
 
+  // Migration v3 -> v4: Add defaultTeam field
+  if (migrated.schemaVersion < 4) {
+    if (migrated.defaultTeam === undefined) {
+      migrated.defaultTeam = null;
+    }
+    migrated.schemaVersion = 4;
+  }
+
   return migrated;
 }
 
@@ -140,6 +150,11 @@ export function validateSettings(settings) {
     if (typeof settings.schemaVersion !== 'number' || settings.schemaVersion < 1) {
       errors.push('settings.schemaVersion must be a positive number');
     }
+  }
+
+  // Validate defaultTeam (optional string)
+  if (settings.defaultTeam !== undefined && settings.defaultTeam !== null && typeof settings.defaultTeam !== 'string') {
+    errors.push('settings.defaultTeam must be a string or null');
   }
 
   // Validate project-scoped daemon configs (hybrid mode)
@@ -176,6 +191,9 @@ export function validateSettings(settings) {
             }
             if (cfg.scope.openStates !== undefined && !Array.isArray(cfg.scope.openStates)) {
               errors.push(`settings.projects.${projectId}.scope.openStates must be an array`);
+            }
+            if (cfg.scope.team !== undefined && cfg.scope.team !== null && typeof cfg.scope.team !== 'string') {
+              errors.push(`settings.projects.${projectId}.scope.team must be a string or null`);
             }
           }
         }
