@@ -570,14 +570,6 @@ export async function createIssue(client, input) {
   // The create response has _issue (private property), not issue
   const created = result._issue;
 
-  // Debug: log the full result and created object
-  console.error('[createIssue] result.success:', result.success);
-  console.error('[createIssue] result keys:', Object.keys(result));
-  console.error('[createIssue] created keys:', created ? Object.keys(created) : 'null');
-  console.error('[createIssue] created.id:', created?.id);
-  console.error('[createIssue] created.identifier:', created?.identifier);
-  console.error('[createIssue] created.title:', created?.title);
-
   // Try to fetch the full issue to get computed fields like identifier
   try {
     if (!created?.id) {
@@ -585,13 +577,11 @@ export async function createIssue(client, input) {
     }
     const fullIssue = await client.issue(created.id);
     if (fullIssue) {
-      console.error('[createIssue] Full issue fetched, identifier:', fullIssue.identifier);
       const transformed = await transformIssue(fullIssue);
       return transformed;
     }
-  } catch (err) {
-    // Log for debugging but continue with fallback
-    console.error('[createIssue] Failed to fetch full issue:', err.message);
+  } catch {
+    // Continue with fallback
   }
 
   // Fallback: Build response from create result + input values
@@ -607,8 +597,6 @@ export async function createIssue(client, input) {
     project: null,
     assignee: null,
   };
-
-  console.error('[createIssue] Using fallback, created.id:', created.id, 'identifier:', created.identifier);
 
   // Try to resolve relations (they may be promises)
   try {
@@ -638,8 +626,6 @@ export async function createIssue(client, input) {
       if (assigneeData) issueResponse.assignee = { id: assigneeData.id, name: assigneeData.name, displayName: assigneeData.displayName };
     }
   } catch { /* ignore */ }
-
-  console.error('[createIssue] Fallback response:', JSON.stringify({ identifier: issueResponse.identifier, state: issueResponse.state, assignee: issueResponse.assignee }));
 
   return issueResponse;
 }
