@@ -567,13 +567,13 @@ export async function createIssue(client, input) {
     throw new Error('Failed to create issue');
   }
 
-  // The create response includes the issue with basic fields
-  const created = result.issue;
+  // The create response has _issue (private property), not issue
+  const created = result._issue;
 
   // Debug: log the full result and created object
   console.error('[createIssue] result.success:', result.success);
   console.error('[createIssue] result keys:', Object.keys(result));
-  console.error('[createIssue] result.issue keys:', created ? Object.keys(created) : 'null');
+  console.error('[createIssue] created keys:', created ? Object.keys(created) : 'null');
   console.error('[createIssue] created.id:', created?.id);
   console.error('[createIssue] created.identifier:', created?.identifier);
   console.error('[createIssue] created.title:', created?.title);

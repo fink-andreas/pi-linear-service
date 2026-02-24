@@ -764,8 +764,11 @@ async function executeIssueCreate(client, params) {
   const metaParts = [`Team: ${team.name}`, `Project: ${projectLabel}`, `State: ${stateLabel}`, `Assignee: ${assigneeLabel}`];
   if (priorityLabel) metaParts.push(`Priority: ${priorityLabel}`);
 
+  // Include debug info in response
+  const debugInfo = ` [id=${issue.id?.substring(0,8) || 'none'}]`;
+
   return toTextResult(
-    `Created issue **${identifier}**: ${issue.title}\n${metaParts.join(' | ')}`,
+    `Created issue **${identifier}**: ${issue.title}${debugInfo}\n${metaParts.join(' | ')}`,
     {
       issueId: issue.id,
       identifier: issue.identifier,
