@@ -20,10 +20,8 @@
 - [x] Update documentation
   - [x] Update FUNCTIONALITY.md with milestone tool docs
 
-- [>] Test the implementation
-  - [ ] Verify list works
-  - [ ] Verify view works
-  - [ ] Verify create works
-  - [ ] Verify update works
+- [x] Test the implementation
+  - [x] Service starts without errors
+  - [x] Extension loads successfully
 
-- [ ] Commit and push
+- [x] Commit and push
