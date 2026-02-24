@@ -27,6 +27,10 @@ import {
   fetchIssueDetails,
   formatIssueAsMarkdown,
   fetchIssuesByProject,
+  fetchProjectMilestones,
+  fetchMilestoneDetails,
+  createProjectMilestone,
+  updateProjectMilestone,
 } from '../src/linear.js';
 
 // ===== ARGUMENT PARSING UTILITIES =====
@@ -593,6 +597,74 @@ function registerLinearTools(pi) {
       }
     },
   });
+
+  // ===== LINEAR MILESTONE TOOL =====
+  pi.registerTool({
+    name: 'linear_milestone',
+    label: 'Linear Milestone',
+    description: 'Interact with Linear project milestones. Actions: list, view, create, update',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'view', 'create', 'update'],
+          description: 'Action to perform on the milestone(s)',
+        },
+        // Milestone identification (for view, update)
+        milestone: {
+          type: 'string',
+          description: 'Milestone ID (for view, update)',
+        },
+        // Project reference (for list, create)
+        project: {
+          type: 'string',
+          description: 'Project name or ID (for list, create)',
+        },
+        // Create/Update parameters
+        name: {
+          type: 'string',
+          description: 'Milestone name (required for create, optional for update)',
+        },
+        description: {
+          type: 'string',
+          description: 'Milestone description in markdown',
+        },
+        targetDate: {
+          type: 'string',
+          description: 'Target completion date (ISO 8601 format, e.g., 2024-03-15)',
+        },
+        status: {
+          type: 'string',
+          enum: ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'],
+          description: 'Milestone status',
+        },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId, params) {
+      const apiKey = await getLinearApiKey();
+      const client = createLinearClient(apiKey);
+
+      switch (params.action) {
+        case 'list':
+          return await executeMilestoneList(client, params);
+
+        case 'view':
+          return await executeMilestoneView(client, params);
+
+        case 'create':
+          return await executeMilestoneCreate(client, params);
+
+        case 'update':
+          return await executeMilestoneUpdate(client, params);
+
+        default:
+          throw new Error(`Unknown action: ${params.action}`);
+      }
+    },
+  });
 }
 
 // ===== ACTION IMPLEMENTATIONS =====
@@ -886,6 +958,224 @@ async function executeProjectList(client) {
     projectCount: projects.length,
     projects: projects.map(p => ({ id: p.id, name: p.name })),
   });
+}
+
+// ===== MILESTONE ACTION IMPLEMENTATIONS =====
+
+async function executeMilestoneList(client, params) {
+  // Resolve project reference
+  let projectRef = params.project;
+  if (!projectRef) {
+    projectRef = process.cwd().split('/').pop();
+  }
+
+  const resolved = await resolveProjectRef(client, projectRef);
+
+  // Fetch milestones
+  const milestones = await fetchProjectMilestones(client, resolved.id);
+
+  // Format output
+  if (milestones.length === 0) {
+    return toTextResult(`No milestones found in project "${resolved.name}"`, {
+      projectId: resolved.id,
+      projectName: resolved.name,
+      milestoneCount: 0,
+    });
+  }
+
+  const lines = [`## Milestones in project "${resolved.name}" (${milestones.length})\n`];
+
+  // Sort by order
+  const sorted = [...milestones].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  for (const milestone of sorted) {
+    const statusEmoji = {
+      backlogged: '📋',
+      planned: '📅',
+      inProgress: '🚀',
+      paused: '⏸️',
+      completed: '✅',
+      cancelled: '❌',
+    }[milestone.status] || '📌';
+
+    const progressLabel = milestone.progress !== undefined && milestone.progress !== null
+      ? `${milestone.progress}%`
+      : 'N/A';
+
+    const dateLabel = milestone.targetDate
+      ? ` → ${milestone.targetDate.split('T')[0]}`
+      : '';
+
+    lines.push(`- ${statusEmoji} **${milestone.name}** _[${milestone.status}]_ (${progressLabel})${dateLabel}`);
+    if (milestone.description) {
+      lines.push(`  ${milestone.description.split('\n')[0].slice(0, 100)}${milestone.description.length > 100 ? '...' : ''}`);
+    }
+  }
+
+  return toTextResult(lines.join('\n'), {
+    projectId: resolved.id,
+    projectName: resolved.name,
+    milestoneCount: milestones.length,
+    milestones: milestones.map(m => ({ id: m.id, name: m.name, status: m.status, progress: m.progress })),
+  });
+}
+
+async function executeMilestoneView(client, params) {
+  const milestoneId = ensureNonEmpty(params.milestone, 'milestone');
+
+  const milestoneData = await fetchMilestoneDetails(client, milestoneId);
+
+  // Format as markdown
+  const lines = [];
+
+  // Title
+  lines.push(`# Milestone: ${milestoneData.name}`);
+
+  // Meta information
+  const metaParts = [];
+  if (milestoneData.project?.name) {
+    metaParts.push(`**Project:** ${milestoneData.project.name}`);
+  }
+  metaParts.push(`**Status:** ${milestoneData.status}`);
+  if (milestoneData.progress !== undefined && milestoneData.progress !== null) {
+    metaParts.push(`**Progress:** ${milestoneData.progress}%`);
+  }
+  if (milestoneData.targetDate) {
+    metaParts.push(`**Target Date:** ${milestoneData.targetDate.split('T')[0]}`);
+  }
+
+  if (metaParts.length > 0) {
+    lines.push('');
+    lines.push(metaParts.join(' | '));
+  }
+
+  // Description
+  if (milestoneData.description) {
+    lines.push('');
+    lines.push(milestoneData.description);
+  }
+
+  // Issues
+  if (milestoneData.issues?.length > 0) {
+    lines.push('');
+    lines.push(`## Issues (${milestoneData.issues.length})`);
+    lines.push('');
+
+    for (const issue of milestoneData.issues) {
+      const stateLabel = issue.state?.name || 'Unknown';
+      const assigneeLabel = issue.assignee?.displayName || 'Unassigned';
+      const priorityLabel = issue.priority !== undefined && issue.priority !== null
+        ? ['None', 'Urgent', 'High', 'Medium', 'Low'][issue.priority] || `P${issue.priority}`
+        : null;
+
+      const metaParts = [`[${stateLabel}]`, `@${assigneeLabel}`];
+      if (priorityLabel) metaParts.push(priorityLabel);
+      if (issue.estimate !== undefined && issue.estimate !== null) metaParts.push(`${issue.estimate}pt`);
+
+      lines.push(`- **${issue.identifier}**: ${issue.title} _${metaParts.join(' ')}_`);
+    }
+  } else {
+    lines.push('');
+    lines.push('_No issues associated with this milestone._');
+  }
+
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+    details: {
+      milestoneId: milestoneData.id,
+      name: milestoneData.name,
+      status: milestoneData.status,
+      progress: milestoneData.progress,
+      project: milestoneData.project,
+      issueCount: milestoneData.issues?.length || 0,
+    },
+  };
+}
+
+async function executeMilestoneCreate(client, params) {
+  const name = ensureNonEmpty(params.name, 'name');
+
+  // Resolve project reference
+  let projectRef = params.project;
+  if (!projectRef) {
+    projectRef = process.cwd().split('/').pop();
+  }
+
+  const resolved = await resolveProjectRef(client, projectRef);
+
+  // Build create input
+  const createInput = {
+    projectId: resolved.id,
+    name,
+  };
+
+  if (params.description) {
+    createInput.description = params.description;
+  }
+
+  if (params.targetDate) {
+    createInput.targetDate = params.targetDate;
+  }
+
+  if (params.status) {
+    createInput.status = params.status;
+  }
+
+  const milestone = await createProjectMilestone(client, createInput);
+
+  const statusEmoji = {
+    backlogged: '📋',
+    planned: '📅',
+    inProgress: '🚀',
+    paused: '⏸️',
+    completed: '✅',
+    cancelled: '❌',
+  }[milestone.status] || '📌';
+
+  return toTextResult(
+    `Created milestone ${statusEmoji} **${milestone.name}** _[${milestone.status}]_ in project "${resolved.name}"`,
+    {
+      milestoneId: milestone.id,
+      name: milestone.name,
+      status: milestone.status,
+      project: milestone.project,
+    }
+  );
+}
+
+async function executeMilestoneUpdate(client, params) {
+  const milestoneId = ensureNonEmpty(params.milestone, 'milestone');
+
+  const result = await updateProjectMilestone(client, milestoneId, {
+    name: params.name,
+    description: params.description,
+    targetDate: params.targetDate,
+    status: params.status,
+  });
+
+  const friendlyChanges = result.changed;
+  const suffix = friendlyChanges.length > 0
+    ? ` (${friendlyChanges.join(', ')})`
+    : '';
+
+  const statusEmoji = {
+    backlogged: '📋',
+    planned: '📅',
+    inProgress: '🚀',
+    paused: '⏸️',
+    completed: '✅',
+    cancelled: '❌',
+  }[result.milestone.status] || '📌';
+
+  return toTextResult(
+    `Updated milestone ${statusEmoji} **${result.milestone.name}**${suffix}`,
+    {
+      milestoneId: result.milestone.id,
+      name: result.milestone.name,
+      status: result.milestone.status,
+      changed: friendlyChanges,
+    }
+  );
 }
 
 // ===== EXTENSION ENTRY POINT =====

@@ -776,6 +776,241 @@ export async function startIssue(client, issueRef) {
   };
 }
 
+// ===== MILESTONE FUNCTIONS =====
+
+/**
+ * Transform SDK milestone object to plain object for consumers
+ * @param {Object} sdkMilestone - SDK milestone object
+ * @returns {Promise<Object>} Plain milestone object
+ */
+async function transformMilestone(sdkMilestone) {
+  if (!sdkMilestone) return null;
+
+  // Handle SDK milestone with lazy-loaded relations
+  const [project] = await Promise.all([
+    sdkMilestone.project?.catch?.(() => null) ?? sdkMilestone.project,
+  ]);
+
+  return {
+    id: sdkMilestone.id,
+    name: sdkMilestone.name,
+    description: sdkMilestone.description,
+    progress: sdkMilestone.progress,
+    order: sdkMilestone.order,
+    targetDate: sdkMilestone.targetDate,
+    status: sdkMilestone.status,
+    project: project ? { id: project.id, name: project.name } : null,
+  };
+}
+
+/**
+ * Fetch milestones for a project
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} projectId - Project ID
+ * @returns {Promise<Array<Object>>} Array of milestones
+ */
+export async function fetchProjectMilestones(client, projectId) {
+  const project = await client.project(projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+
+  const result = await project.projectMilestones();
+  const nodes = result.nodes || [];
+
+  const milestones = await Promise.all(nodes.map(transformMilestone));
+
+  debug('Fetched project milestones', {
+    projectId,
+    milestoneCount: milestones.length,
+    milestones: milestones.map((m) => ({ id: m.id, name: m.name, status: m.status })),
+  });
+
+  return milestones;
+}
+
+/**
+ * Fetch milestone details including associated issues
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} milestoneId - Milestone ID
+ * @returns {Promise<Object>} Milestone details with issues
+ */
+export async function fetchMilestoneDetails(client, milestoneId) {
+  const milestone = await client.projectMilestone(milestoneId);
+  if (!milestone) {
+    throw new Error(`Milestone not found: ${milestoneId}`);
+  }
+
+  // Fetch project and issues in parallel
+  const [project, issuesResult] = await Promise.all([
+    milestone.project?.catch?.(() => null) ?? milestone.project,
+    milestone.issues?.()?.catch?.(() => ({ nodes: [] })) ?? milestone.issues?.() ?? { nodes: [] },
+  ]);
+
+  // Transform issues
+  const issues = await Promise.all(
+    (issuesResult.nodes || []).map(async (issue) => {
+      const [state, assignee] = await Promise.all([
+        issue.state?.catch?.(() => null) ?? issue.state,
+        issue.assignee?.catch?.(() => null) ?? issue.assignee,
+      ]);
+
+      return {
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        state: state ? { name: state.name, color: state.color, type: state.type } : null,
+        assignee: assignee ? { id: assignee.id, name: assignee.name, displayName: assignee.displayName } : null,
+        priority: issue.priority,
+        estimate: issue.estimate,
+      };
+    })
+  );
+
+  return {
+    id: milestone.id,
+    name: milestone.name,
+    description: milestone.description,
+    progress: milestone.progress,
+    order: milestone.order,
+    targetDate: milestone.targetDate,
+    status: milestone.status,
+    project: project ? { id: project.id, name: project.name } : null,
+    issues,
+  };
+}
+
+/**
+ * Create a new project milestone
+ * @param {LinearClient} client - Linear SDK client
+ * @param {Object} input - Milestone creation input
+ * @param {string} input.projectId - Project ID (required)
+ * @param {string} input.name - Milestone name (required)
+ * @param {string} [input.description] - Milestone description
+ * @param {string} [input.targetDate] - Target completion date (ISO string)
+ * @param {string} [input.status] - Milestone status (backlogged, planned, inProgress, paused, completed, cancelled)
+ * @returns {Promise<Object>} Created milestone
+ */
+export async function createProjectMilestone(client, input) {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new Error('Missing required field: name');
+  }
+
+  const projectId = String(input.projectId || '').trim();
+  if (!projectId) {
+    throw new Error('Missing required field: projectId');
+  }
+
+  const createInput = {
+    projectId,
+    name,
+  };
+
+  if (input.description !== undefined) {
+    createInput.description = String(input.description);
+  }
+
+  if (input.targetDate !== undefined) {
+    createInput.targetDate = input.targetDate;
+  }
+
+  if (input.status !== undefined) {
+    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'];
+    const status = String(input.status);
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid status: ${status}. Valid values: ${validStatuses.join(', ')}`);
+    }
+    createInput.status = status;
+  }
+
+  const result = await client.createProjectMilestone(createInput);
+
+  if (!result.success) {
+    throw new Error('Failed to create milestone');
+  }
+
+  // The payload has projectMilestone
+  const created = result.projectMilestone || result._projectMilestone;
+
+  // Try to fetch the full milestone
+  try {
+    if (created?.id) {
+      const fullMilestone = await client.projectMilestone(created.id);
+      if (fullMilestone) {
+        return transformMilestone(fullMilestone);
+      }
+    }
+  } catch {
+    // Continue with fallback
+  }
+
+  // Fallback: Build response from create result
+  return {
+    id: created?.id || null,
+    name: created?.name || name,
+    description: created?.description ?? input.description ?? null,
+    progress: created?.progress ?? 0,
+    order: created?.order ?? null,
+    targetDate: created?.targetDate ?? input.targetDate ?? null,
+    status: created?.status ?? input.status ?? 'backlogged',
+    project: null,
+  };
+}
+
+/**
+ * Update a project milestone
+ * @param {LinearClient} client - Linear SDK client
+ * @param {string} milestoneId - Milestone ID
+ * @param {Object} patch - Fields to update
+ * @returns {Promise<{milestone: Object, changed: Array<string>}>}
+ */
+export async function updateProjectMilestone(client, milestoneId, patch = {}) {
+  const milestone = await client.projectMilestone(milestoneId);
+  if (!milestone) {
+    throw new Error(`Milestone not found: ${milestoneId}`);
+  }
+
+  const updateInput = {};
+
+  if (patch.name !== undefined) {
+    updateInput.name = String(patch.name);
+  }
+
+  if (patch.description !== undefined) {
+    updateInput.description = String(patch.description);
+  }
+
+  if (patch.targetDate !== undefined) {
+    updateInput.targetDate = patch.targetDate;
+  }
+
+  if (patch.status !== undefined) {
+    const validStatuses = ['backlogged', 'planned', 'inProgress', 'paused', 'completed', 'cancelled'];
+    const status = String(patch.status);
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid status: ${status}. Valid values: ${validStatuses.join(', ')}`);
+    }
+    updateInput.status = status;
+  }
+
+  if (Object.keys(updateInput).length === 0) {
+    throw new Error('No update fields provided');
+  }
+
+  const result = await milestone.update(updateInput);
+  if (!result.success) {
+    throw new Error('Failed to update milestone');
+  }
+
+  const updatedMilestone = await transformMilestone(result.projectMilestone || result._projectMilestone || milestone);
+
+  return {
+    milestone: updatedMilestone,
+    changed: Object.keys(updateInput),
+  };
+}
+
 // ===== PURE HELPER FUNCTIONS (unchanged) =====
 
 /**

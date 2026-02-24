@@ -64,14 +64,42 @@ Validation in extension flow includes:
 
 ### Extension tools (LLM-callable)
 
-- `linear_issue_start` (params: `issue`, optional `branch`, `fromRef`, `onBranchExists`)
-- `linear_issue_comment_add` (params: `issue`, `body`, optional `parentCommentId`)
-- `linear_issue_update` (params: `issue`, optional `title`, `description`, `priority`, `state`)
+The extension provides the following tools for LLM interaction with Linear:
 
-Tool behavior:
-- Uses `LINEAR_API_KEY` and direct Linear GraphQL API calls.
-- Resolves issue by identifier/id before mutation.
-- `linear_issue_start` also executes git branch flow:
+#### `linear_issue` Tool
+
+Actions: `list`, `view`, `create`, `update`, `comment`, `start`
+
+- `list`: List issues in a project (params: `project`, `states`, `assignee`, `limit`)
+- `view`: View issue details with comments (params: `issue`, `includeComments`)
+- `create`: Create a new issue (params: `title`, `team`, `project`, `description`, `priority`, `state`, `assignee`, `parentId`)
+- `update`: Update an issue (params: `issue`, `title`, `description`, `priority`, `state`)
+- `comment`: Add a comment to an issue (params: `issue`, `body`, `parentCommentId`)
+- `start`: Start an issue with git branch (params: `issue`, `branch`, `fromRef`, `onBranchExists`)
+
+#### `linear_project` Tool
+
+Actions: `list`
+
+- `list`: List all accessible projects
+
+#### `linear_milestone` Tool
+
+Actions: `list`, `view`, `create`, `update`
+
+- `list`: List milestones for a project (params: `project`)
+- `view`: View milestone details with associated issues (params: `milestone`)
+- `create`: Create a new milestone (params: `project`, `name`, `description`, `targetDate`, `status`)
+- `update`: Update a milestone (params: `milestone`, `name`, `description`, `targetDate`, `status`)
+
+Milestone status values: `backlogged`, `planned`, `inProgress`, `paused`, `completed`, `cancelled`
+
+### Tool behavior
+
+- Uses `LINEAR_API_KEY` from environment or settings for Linear SDK calls.
+- Project references can be project name or ID (auto-resolved).
+- Issue references can be identifier (ABC-123) or Linear UUID.
+- `linear_issue` with action `start` also executes git branch flow:
   - default branch from Linear `issue.branchName`
   - supports source ref override (`fromRef`)
   - handles existing branch by `switch` or suffixed create (`onBranchExists=suffix`)
